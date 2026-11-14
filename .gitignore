@@ -1,0 +1,7 @@
+__pycache__/
+.pytest_cache/
+*.egg-info/
+/exports/
+/offgraph.rl
+/offgraph-store/
+report-*.html

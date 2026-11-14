@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "offgraph"
+version = "0.1.0"
+description = "What a leaver still has, and what breaks if you remove it: SaaS exports in a Relate graph."
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = ["relate-db>=1.0.1"]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[project.scripts]
+offgraph = "offgraph.cli:main"
+
+[tool.setuptools]
+packages = ["offgraph"]
+
+[tool.pytest.ini_options]
+markers = ["engine: needs Relate (relate-db or the relate binary)"]
+pythonpath = ["."]

@@ -1,0 +1,10 @@
+group,parent
+all-staff,
+engineering,all-staff
+sales,all-staff
+support,all-staff
+finance,all-staff
+design,all-staff
+ops,all-staff
+eng-oncall,engineering
+finance-approvers,finance

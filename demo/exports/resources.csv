@@ -1,0 +1,27 @@
+resource,app,kind,title,owner
+R001,Docs,shared drive,Engineering shared drive,dev.ruiz@example.com
+R002,Chat,channel,Engineering channel,rae.novak@example.com
+R003,Tracker,project,Engineering project,oli.novak@example.com
+R004,Wiki,space,Engineering space,oli.novak@example.com
+R005,CodeHost,repository,Engineering repository,rae.novak@example.com
+R006,Docs,shared drive,Sales shared drive,pia.tanaka@example.com
+R007,Chat,channel,Sales channel,sam.berg@example.com
+R008,Tracker,project,Sales project,sam.lind@example.com
+R009,Wiki,space,Sales space,pia.lind@example.com
+R010,Docs,shared drive,Support shared drive,cleo.okafor@example.com
+R011,Chat,channel,Support channel,rae.weber@example.com
+R012,Tracker,project,Support project,nia.ruiz@example.com
+R013,Wiki,space,Support space,ben.okafor@example.com
+R014,Docs,shared drive,Finance shared drive,pia.ruiz@example.com
+R015,Chat,channel,Finance channel,dev.weber@example.com
+R016,Tracker,project,Finance project,dev.weber@example.com
+R017,Wiki,space,Finance space,nia.park@example.com
+R018,Docs,shared drive,Design shared drive,sam.moreau@example.com
+R019,Chat,channel,Design channel,sam.okafor@example.com
+R020,Tracker,project,Design project,lea.weber@example.com
+R021,Wiki,space,Design space,lea.weber@example.com
+R022,Docs,shared drive,Ops shared drive,oli.berg@example.com
+R023,Chat,channel,Ops channel,hana.weber@example.com
+R024,Tracker,project,Ops project,quin.okafor@example.com
+R025,Wiki,space,Ops space,jun.lind@example.com
+R026,CodeHost,repository,Ops repository,quin.okafor@example.com
