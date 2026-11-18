@@ -53,7 +53,8 @@ def generate(out: Path, seed: int = 7, people: int = 60) -> dict[str, int]:
         persons.append({"email": email, "name": f"[Sample] {name}", "team": team,
                         "status": status})
 
-    # Groups: one per team, a parent "All staff", and two nested cross-team groups.
+    # Groups: one per team, a parent "All staff", and two nested cross-team groups
+    # (a three-level chain is added at the end).
     groups = [{"group": "all-staff", "parent": ""}]
     groups += [{"group": t.lower(), "parent": "all-staff"} for t in TEAMS]
     groups += [{"group": "eng-oncall", "parent": "engineering"},
@@ -120,6 +121,31 @@ def generate(out: Path, seed: int = 7, people: int = 60) -> dict[str, int]:
     # A direct personal grant to a leaver, outside any group.
     grants.append({"resource": resources[1]["resource"], "grantee": leavers[0]["email"],
                    "grantee_type": "person", "access": "admin"})
+
+    # A deeper chain (no random draws, so every row above stays as it was): the
+    # company budget is shared with "leadership"; the Finance leaver reaches it only
+    # through budget-owners -> spend-approvers -> leadership, which no single export shows.
+    fin_leaver = next(m["email"] for m in memberships
+                      if m["group"] == "finance" and m["role"] == "admin")
+    # Their admin is an active person who already administers Ops, so no team's
+    # owner suggestion changes.
+    ops_admin = next(m["email"] for m in memberships if m["group"] == "ops" and m["role"] == "admin"
+                     and any(p["email"] == m["email"] and p["status"] == "active" for p in persons))
+    fin_active = sorted(p["email"] for p in persons
+                        if p["team"] == "Finance" and p["status"] == "active")
+    groups += [{"group": "leadership", "parent": "all-staff"},
+               {"group": "spend-approvers", "parent": "leadership"},
+               {"group": "budget-owners", "parent": "spend-approvers"}]
+    memberships += [{"email": ops_admin, "group": g, "role": "admin"}
+                    for g in ("leadership", "spend-approvers", "budget-owners")]
+    memberships += [{"email": fin_active[0], "group": "budget-owners", "role": "member"},
+                    {"email": fin_leaver, "group": "budget-owners", "role": "member"}]
+    rid += 1
+    budget = {"resource": f"R{rid:03d}", "app": "Docs", "kind": "shared drive",
+              "title": "Company budget", "owner": ops_admin}
+    resources.append(budget)
+    grants.append({"resource": budget["resource"], "grantee": "leadership",
+                   "grantee_type": "group", "access": "edit"})
 
     tables = {"people.csv": persons, "groups.csv": groups,
               "memberships.csv": memberships, "accounts.csv": accounts,

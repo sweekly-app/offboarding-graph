@@ -1,0 +1,40 @@
+[
+  {
+    "id": 101,
+    "node_id": "R_101",
+    "name": "api",
+    "full_name": "example-org/api",
+    "private": true,
+    "owner": {
+      "login": "example-org",
+      "type": "Organization"
+    },
+    "permissions": {
+      "admin": false,
+      "maintain": false,
+      "push": true,
+      "triage": true,
+      "pull": true
+    },
+    "role_name": "write"
+  },
+  {
+    "id": 103,
+    "node_id": "R_103",
+    "name": "docs-site",
+    "full_name": "example-org/docs-site",
+    "private": true,
+    "owner": {
+      "login": "example-org",
+      "type": "Organization"
+    },
+    "permissions": {
+      "admin": false,
+      "maintain": false,
+      "push": false,
+      "triage": false,
+      "pull": true
+    },
+    "role_name": "read"
+  }
+]

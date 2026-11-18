@@ -1,0 +1,12 @@
+[
+  {
+    "login": "example-bo-l",
+    "id": 12,
+    "node_id": "U_12",
+    "avatar_url": "",
+    "url": "https://api.github.com/users/example-bo-l",
+    "html_url": "https://github.com/example-bo-l",
+    "type": "User",
+    "site_admin": false
+  }
+]

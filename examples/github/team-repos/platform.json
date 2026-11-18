@@ -1,0 +1,21 @@
+[
+  {
+    "id": 102,
+    "node_id": "R_102",
+    "name": "deploy-scripts",
+    "full_name": "example-org/deploy-scripts",
+    "private": true,
+    "owner": {
+      "login": "example-org",
+      "type": "Organization"
+    },
+    "permissions": {
+      "admin": false,
+      "maintain": false,
+      "push": true,
+      "triage": true,
+      "pull": true
+    },
+    "role_name": "write"
+  }
+]

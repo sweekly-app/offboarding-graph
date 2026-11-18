@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Offboarding Graph in the browser</title>
+<script type="importmap">{"imports":{"@relate/relate-wasm":"__CDN__/relate.js"},"integrity":{"__CDN__/relate.js":"__SRI_JS__","__CDN__/__OPFS__":"__SRI_OPFS__"}}</script>
+<link rel="modulepreload" href="__CDN__/relate.js" integrity="__SRI_JS__" crossorigin="anonymous">
+<style>
+:root{--bg:#fbfaf7;--fg:#1d1f23;--mut:#666b73;--line:#d6d8dc;--card:#fff;--acc:#2f5d8a;--risk:#b4372f;--riskbg:#fbe9e7;--ok:#2e7d4f;--code:#f3f3f1}
+@media (prefers-color-scheme:dark){:root{--bg:#16181c;--fg:#e8e9ec;--mut:#9aa0a8;--line:#3a3f47;--card:#1e2126;--acc:#6fa3d6;--risk:#ef7a70;--riskbg:#3a2220;--ok:#6cc08b;--code:#262a30}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:1000px;margin:0 auto;padding:24px 16px 48px}
+h1{font-size:24px;margin:0 0 4px}h2{font-size:17px;margin:28px 0 8px}
+.mut{color:var(--mut)}.risk{color:var(--risk)}
+#status{display:inline-block;margin:10px 0 2px;padding:4px 10px;border-radius:999px;background:var(--code);font-size:13px}
+#status.ok{color:var(--ok)}#status.err{color:var(--risk)}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:14px 0}
+select,textarea,button{font:inherit;color:inherit}
+select{padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);max-width:100%}
+button{padding:7px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);cursor:pointer}
+button.primary{background:var(--acc);border-color:var(--acc);color:#fff}
+button:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.kpis{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px;min-width:150px}
+.kpi b{display:block;font-size:22px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:10px 0}
+.tw{overflow-x:auto}
+table{border-collapse:collapse;width:100%}
+td,th{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-size:14px;vertical-align:top}
+td{overflow-wrap:break-word}
+.chain{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+.chain span{display:inline-block;padding:1px 7px;margin:1px 0;border:1px solid var(--line);border-radius:999px;background:var(--code)}
+details{margin-top:6px}summary{cursor:pointer;color:var(--mut);font-size:13px}
+pre{background:var(--code);padding:10px;border-radius:8px;overflow-x:auto;font-size:12.5px;margin:6px 0}
+textarea{width:100%;min-height:96px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--card);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+ol li{margin:3px 0}
+.linkish{border:0;background:none;padding:0;color:var(--acc);text-decoration:underline;cursor:pointer;text-align:left}
+.graph svg{width:100%;height:auto;min-width:640px;background:var(--card)}
+.e{stroke:var(--line);stroke-width:1.5}.arh{fill:var(--mut)}.e.mem,.e.child{stroke:var(--acc);stroke-width:2}.e.direct{stroke:#b8741a;stroke-dasharray:5 4}
+.e.owns{stroke:var(--risk);stroke-width:2;stroke-dasharray:2 3}.el{font-size:10px;fill:var(--mut);text-anchor:middle;paint-order:stroke;stroke:var(--card);stroke-width:3px}.el.owns{fill:var(--risk)}.el.direct{fill:#b8741a}
+.n text{text-anchor:middle;font-size:13px;fill:var(--fg)}.n .sub{font-size:10.5px;fill:var(--mut)}.me circle{fill:var(--acc)}.me text{fill:#fff;font-weight:600}
+.grp rect{fill:var(--code);stroke:var(--line)}.sole rect{stroke:var(--risk);stroke-width:2.5}.n .tag{font-size:10px;fill:var(--risk)}.res rect{fill:var(--code);stroke:var(--line)}
+.res.risk rect{fill:var(--riskbg);stroke:var(--risk);stroke-width:2}
+.pill{display:inline-block;padding:0 8px;border-radius:999px;font-size:12px;background:var(--riskbg);color:var(--risk)}
+</style>
+</head>
+<body>
+<main>
+<h1>Offboarding Graph, in your browser</h1>
+<p class="mut">What a leaver still has, and what breaks if you remove them. Relate's WebAssembly build runs inside this page: the six CSV exports of __TITLE__ are loaded into an in-memory Relate graph here, and every answer below is a Cypher query run in your browser. No server, no install.</p>
+<div id="status" role="status">Loading Relate…</div>
+
+<h2>Pick a person</h2>
+<div class="row">
+<label for="who">Person</label>
+<select id="who" disabled></select>
+</div>
+<div id="person"></div>
+
+<h2>The whole company</h2>
+<div id="company" class="mut">…</div>
+
+<h2>Ask your own Cypher</h2>
+<p class="mut">The graph here is a throwaway copy in this page: writes change only this tab, and Reset rebuilds it.</p>
+<div class="row" id="examples"></div>
+<textarea id="q" aria-label="Cypher statement" spellcheck="false">MATCH (n) RETURN labels(n)[0] AS kind, count(*) AS nodes ORDER BY nodes DESC</textarea>
+<div class="row"><button class="primary" id="run" disabled>Run</button><button id="reset" disabled>Reset the graph</button></div>
+<div id="out"></div>
+
+<p class="mut" style="margin-top:32px">Offboarding Graph by Sweekly Apps (MIT). Relate is loaded from the npm package @relate/relate-wasm __RELATE__ through the jsDelivr CDN; the data is embedded in this file. Not affiliated with or endorsed by Neo4j; Neo4j and Relate are trademarks of Neo4j, Inc. This page sets no cookies and runs no tracking; your browser loads the Relate library from the jsDelivr CDN and the page from GitHub Pages.</p>
+</main>
+<script type="application/json" id="data">__DATA__</script>
+<script type="module">
+import init, { RelateDb } from "@relate/relate-wasm";  // pinned with integrity hashes in the import map above
+
+const D = JSON.parse(document.getElementById("data").textContent);
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const NO_OWNER = "a new owner (nobody active can edit it)";
+const fix2 = (x) => Number(x).toFixed(2);
+const byStr = (k) => (a, b) => (a[k] < b[k] ? -1 : a[k] > b[k] ? 1 : 0);
+let db;
+
+function run(query, params) {
+  const r = JSON.parse(db.execute(query.trim(), params ? JSON.stringify(params) : null));
+  if (r.error) throw new Error(r.error);
+  return r.rows;
+}
+const ask = (name, email) => run(D.questions[name], D.questions[name].includes("$email") ? { email } : null);
+
+function build() {
+  if (db) db.free();
+  db = new RelateDb();
+  for (const [q, p] of D.load) run(q, p);
+}
+
+function bestChains(rows) {  // the same choice as graph.best_chains: shortest, then alphabetical
+  const best = new Map();
+  const key = (r) => r.resource + "\u0000" + r.via;
+  const cmp = (a, b) => a.length - b.length || (a.join("\u0000") < b.join("\u0000") ? -1 : a.join("\u0000") > b.join("\u0000") ? 1 : 0);
+  for (const r of rows) {
+    const k = key(r), old = best.get(k);
+    if (!old || cmp(r.chain, old) < 0) best.set(k, r.chain);
+  }
+  return best;
+}
+
+function reach(email) {
+  const chains = bestChains(ask("paths", email));
+  return ask("reach", email)
+    .map((r) => ({ ...r, path: r.via === "direct" ? ["direct"] : chains.get(r.resource + "\u0000" + r.via) || [r.via] }))
+    .sort((a, b) => byStr("resource")(a, b) || byStr("via")(a, b));
+}
+
+function checklist(email) {  // the same order as the CLI's checklist
+  const steps = [];
+  for (const r of ask("orphans", email).sort(byStr("resource"))) steps.push(`Transfer ownership of ${r.resource} to ${r.suggested_owner || NO_OWNER}`);
+  for (const r of ask("sole_admin", email).sort(byStr("group_name"))) steps.push(`Name a second admin for group ${r.group_name}, then remove ${email} as admin`);
+  for (const r of ask("app_admin", email).sort(byStr("app"))) steps.push(`Remove admin rights in ${r.app}`);
+  for (const r of ask("my_seats", email).sort(byStr("app"))) steps.push(`Remove the paid ${r.app} seat (${fix2(r.monthly_usd)} USD a month)`);
+  const direct = [...new Set(ask("reach", email).filter((r) => r.via === "direct").map((r) => r.resource))].sort();
+  for (const r of direct) steps.push(`Revoke the direct grant on ${r}`);
+  steps.push("Disable the account everywhere");
+  return steps;
+}
+
+function whatif(emails) {  // remove them in this page's graph, ask again, then rebuild it
+  const names = ["unowned", "no_admin_groups", "no_editor"];
+  const before = Object.fromEntries(names.map((n) => [n, ask(n)]));
+  const seats = run(D.questions.paid_seats_of, { emails });
+  const already = run("MATCH (p:Person) WHERE p.email IN $emails AND p.status <> 'active' RETURN p.email AS email", { emails }).map((r) => r.email).sort();
+  run(D.remove, { emails });
+  const after = Object.fromEntries(names.map((n) => [n, ask(n)]));
+  build();
+  const fresh = (n, k) => { const old = new Set(before[n].map((r) => r[k])); return after[n].filter((r) => !old.has(r[k])).sort(byStr(k)); };
+  return { removed: emails, already_left: already, unowned: fresh("unowned", "resource"),
+           no_admin_groups: fresh("no_admin_groups", "group_name").map((r) => r.group_name),
+           no_editor: fresh("no_editor", "resource"), seats, seats_usd: Math.round(seats.reduce((s, r) => s + Number(r.monthly_usd), 0) * 100) / 100 };
+}
+
+const table = (head, rows) => rows.length
+  ? `<div class="tw"><table><tr>${head.map((h) => `<th>${esc(h)}</th>`).join("")}</tr>${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("")}</table></div>`
+  : `<p class="mut">None.</p>`;
+const chain = (path) => `<span class="chain">${path.map((g) => `<span>${esc(g)}</span>`).join(" → ")}</span>`;
+const cypher = (...names) => `<details><summary>The Cypher</summary>${names.map((n) => `<pre>${esc(D.questions[n].trim())}</pre>`).join("")}</details>`;
+
+
+const short = (t, n) => (t.length <= n ? t : t.slice(0, n - 1) + "…");
+const f1 = (x) => Number(x).toFixed(1);
+function svg(email, reach, orphans, soleAdmin, memberships) {  // the same drawing as the report (report.svg)
+  const orphanIds = new Set(orphans.map((o) => o.resource));
+  const titles = new Map(orphans.map((o) => [o.resource, o.title || o.resource]));
+  for (const r of reach) titles.set(r.resource, r.title || r.resource);
+  const chains = reach.filter((r) => r.via !== "direct").map((r) => r.path || [r.via]);
+  const depth = new Map();
+  for (const ch of chains) ch.forEach((g, i) => depth.set(g, Math.min(depth.get(g) ?? i + 1, i + 1)));
+  for (const g of soleAdmin) if (!depth.has(g)) depth.set(g, 1);
+  const memberOf = new Set([...memberships, ...chains.map((c) => c[0]), ...soleAdmin]);
+  const D = Math.max(0, ...depth.values());
+  const COL = 175, RW = 160, ROW = 46, GAP = 60;
+  const rx = 70 + GAP + COL * (D + 1) + RW / 2, W = Math.floor(rx + RW / 2 + 20);
+  const tup = (a, b) => (a[0] - b[0]) || (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0);
+  const viaOf = new Map();
+  for (const r of reach) {
+    const k = r.via === "direct" ? [0, ""] : [depth.get(r.via) ?? 1, r.via];
+    const old = viaOf.get(r.resource);
+    if (!old || tup(k, old) < 0) viaOf.set(r.resource, k);
+  }
+  const resources = [...new Set([...viaOf.keys(), ...orphanIds])].sort((a, b) =>
+    (orphanIds.has(b) - orphanIds.has(a)) || tup(viaOf.get(a) || [0, ""], viaOf.get(b) || [0, ""]) || (a < b ? -1 : a > b ? 1 : 0));
+  let H = Math.max(resources.length * ROW + 40, 200);
+  const ry = new Map(resources.map((r, i) => [r, 20 + ROW / 2 + i * ROW]));
+  const targets = new Map([...depth.keys()].map((g) => [g, []]));
+  for (const r of reach) if (r.via !== "direct") targets.get(r.via).push(ry.get(r.resource));
+  const up = new Map();
+  for (const ch of chains) for (let i = 0; i + 1 < ch.length; i++) { if (!up.has(ch[i])) up.set(ch[i], new Set()); up.get(ch[i]).add(ch[i + 1]); }
+  const gy = new Map();
+  for (let d = D; d >= 1; d--) {
+    const col = [...depth.keys()].filter((g) => depth.get(g) === d).sort();
+    for (const g of col) {
+      const ys = [...(targets.get(g) || []), ...[...(up.get(g) || [])].filter((b) => gy.has(b)).map((b) => gy.get(b))];
+      gy.set(g, ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : H - 30);
+    }
+    let y = -1e9;
+    for (const g of [...col].sort((a, b) => (gy.get(a) - gy.get(b)) || (a < b ? -1 : a > b ? 1 : 0))) { y = Math.max(gy.get(g), y + 52); gy.set(g, y); }
+    H = Math.max(H, Math.floor(y + 40));
+  }
+  const gx = new Map([...depth].map(([g, d]) => [g, 70 + GAP + COL * d]));
+  const mx = 70, my = H / 2;
+  const out = [`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Access graph for ${esc(email)}">`,
+    '<defs><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" class="arh"/></marker></defs>'];
+  const edge = (x1, y1, x2, y2, cls, label, at = 0.5, bend = false) => {
+    let lx = x1 + (x2 - x1) * at, ly = y1 + (y2 - y1) * at - 4;
+    if (bend) { out.push(`<path class="e ${cls}" fill="none" d="M${f1(x1)} ${f1(y1)} Q${f1(x1)} ${f1(y2)} ${f1(x2)} ${f1(y2)}" marker-end="url(#ar)"/>`); lx = x2 - 90; ly = y2 - 5; }
+    else out.push(`<line class="e ${cls}" x1="${f1(x1)}" y1="${f1(y1)}" x2="${f1(x2)}" y2="${f1(y2)}" marker-end="url(#ar)"/>`);
+    if (label) out.push(`<text class="el ${cls}" x="${f1(lx)}" y="${f1(ly)}">${esc(label)}</text>`);
+  };
+  for (const g of [...memberOf].filter((g) => depth.has(g)).sort()) edge(mx + 40, my, gx.get(g) - 64, gy.get(g), "mem", "MEMBER_OF", 0.5);
+  const seen = new Set();
+  for (const ch of chains) for (let i = 0; i + 1 < ch.length; i++) {
+    const a = ch[i], b = ch[i + 1], k = a + "\u0000" + b;
+    if (!seen.has(k)) { seen.add(k); edge(gx.get(a) + 64, gy.get(a), gx.get(b) - 64, gy.get(b), "child", "CHILD_OF"); }
+  }
+  for (const r of reach) {
+    const x2 = rx - RW / 2, y2 = ry.get(r.resource);
+    if (r.via === "direct") edge(mx, my - 40, x2, y2, "direct", `CAN ${r.access} (direct)`, 0.5, true);
+    else edge(gx.get(r.via) + 64, gy.get(r.via), x2, y2, "can", `CAN ${r.access}`, 0.78);
+  }
+  for (const res of [...orphanIds].sort()) edge(mx, my - 40, rx - RW / 2, ry.get(res), "owns", "OWNS", 0.5, true);
+  for (const g of [...depth.keys()].sort()) {
+    const x = gx.get(g), y = gy.get(g), sole = soleAdmin.includes(g);
+    out.push(`<g class="n grp${sole ? " sole" : ""}"><rect x="${f1(x - 64)}" y="${f1(y - 17)}" width="128" height="34" rx="17"/><text x="${f1(x)}" y="${f1(y + 5)}">${esc(short(g, 18))}</text>${sole ? `<text class="tag" x="${f1(x)}" y="${f1(y + 30)}">no other active admin</text>` : ""}</g>`);
+  }
+  for (const [res, y] of ry) out.push(`<g class="n res${orphanIds.has(res) ? " risk" : ""}"><rect x="${f1(rx - RW / 2)}" y="${f1(y - 18)}" width="${RW}" height="36" rx="8"/><text x="${f1(rx)}" y="${f1(y - 2)}">${esc(res)}</text><text class="sub" x="${f1(rx)}" y="${f1(y + 12)}">${esc(short(titles.get(res) || res, 24))}</text></g>`);
+  out.push(`<g class="n me"><circle cx="${mx}" cy="${my}" r="40"/><text x="${mx}" y="${my + 5}">${esc(short(email.split("@")[0], 12))}</text></g>`);
+  out.push("</svg>");
+  return out.join("\n");
+}
+
+function showPerson(email) {
+  const p = D.people.find((x) => x.email === email);
+  const R = reach(email), O = ask("orphans", email).sort(byStr("resource")), S = ask("sole_admin", email).map((r) => r.group_name).sort();
+  const seats = ask("my_seats", email), cost = seats.reduce((s, r) => s + Number(r.monthly_usd), 0);
+  const W = whatif([email]);
+  const G = svg(email, R, O, S, ask("memberships", email).map((r) => r.group_name));
+  const ids = (rows) => rows.map((r) => `${esc(r.resource)} (${esc(r.title)})`).join(", ") || "none";
+  $("person").innerHTML = `
+  <p>${esc(p.name)} · ${esc(p.team)} · ${p.status === "left" ? '<span class="pill">marked as left</span>' : "active"}</p>
+  <div class="kpis">
+   <div class="kpi"><b>${new Set(R.map((r) => r.resource)).size}</b>resources reachable</div>
+   <div class="kpi"><b>${O.length}</b>only they own</div>
+   <div class="kpi"><b>${S.length}</b>groups with no other active admin</div>
+   <div class="kpi"><b>${fix2(cost)} USD</b>a month in paid seats</div>
+  </div>
+  <div class="card"><b>Their access graph</b> <span class="mut">(read left to right: the person, the groups they are in, the groups those nest under, what each grant opens; red: only they own it, or no other active admin)</span>
+   <div class="tw graph">${G}</div></div>
+  <div class="card"><b>What they can reach, and the chain of groups that leads there</b>
+   ${table(["Resource", "Title", "Access", "Through"], R.map((r) => [esc(r.resource), esc(r.title), esc(r.access), chain(r.path)]))}
+   ${cypher("reach", "paths")}</div>
+  <div class="card"><b>What only they own, and who should take it</b>
+   ${table(["Resource", "Title", "Suggested new owner", "Why"], O.map((o) => [esc(o.resource), esc(o.title), esc(o.suggested_owner || "—"), `<span class="mut">${esc(o.reason)}</span>`]))}
+   ${cypher("orphans")}</div>
+  <div class="card"><b>Groups they administer with no other active admin:</b> ${S.map(esc).join(", ") || "none"} ${cypher("sole_admin")}</div>
+  <div class="card"><b>What breaks if they leave</b> <span class="mut">(their status set to left in this page's graph, the questions asked again, then the graph rebuilt)</span>
+   ${W.already_left.length ? `<p>${esc(email)} is already marked as left, so removing them changes nothing; what they still leave behind is listed above.</p>` : `<ul>
+    <li>resources left with no active owner: ${ids(W.unowned)}</li>
+    <li>groups left with no active admin: ${W.no_admin_groups.map(esc).join(", ") || "none"}</li>
+    <li>resources nobody active can edit any more: ${ids(W.no_editor)}</li>
+    <li>paid seats to remove: ${W.seats.length}, ${fix2(W.seats_usd)} USD a month</li></ul>`}
+   ${cypher("unowned", "no_admin_groups", "no_editor")}</div>
+  <div class="card"><b>Checklist, in a safe order</b><ol>${checklist(email).map((s) => `<li>${esc(s)}</li>`).join("")}</ol></div>`;
+}
+
+function showCompany() {
+  const seats = ask("seats"), total = seats.reduce((s, r) => s + Number(r.monthly_usd), 0);
+  const leavers = ask("leavers").sort(byStr("email"));
+  const noAdmin = ask("no_admin_groups").map((r) => r.group_name).sort();
+  $("company").innerHTML = `<p>In ${esc(D.name)}, ${leavers.length} people marked as left still hold <b>${seats.length} paid seats, ${fix2(total)} USD a month</b>. Groups with no active admin: ${noAdmin.map(esc).join(", ") || "none"}.</p>
+  ${table(["Leaver", "Team", "Owns alone", "No other active admin in", "Seats, USD a month"], leavers.map((l) => {
+    const o = ask("orphans", l.email), s = ask("sole_admin", l.email).map((r) => r.group_name).sort();
+    const c = ask("my_seats", l.email).reduce((x, r) => x + Number(r.monthly_usd), 0);
+    return [`<button class="linkish" data-email="${esc(l.email)}">${esc(l.email)}</button>`, esc(l.team), String(o.length), esc(s.join(", ") || "—"), fix2(c)];
+  }))}${cypher("seats", "leavers", "no_admin_groups")}`;
+  for (const b of $("company").querySelectorAll("button[data-email]")) b.onclick = () => { $("who").value = b.dataset.email; showPerson(b.dataset.email); $("person").scrollIntoView({ behavior: "smooth" }); };
+}
+
+function show(v) {
+  if (v && typeof v === "object" && !Array.isArray(v)) return esc(JSON.stringify(v));
+  return esc(Array.isArray(v) ? JSON.stringify(v) : v);
+}
+function runOwn() {
+  try {
+    const rows = run($("q").value);
+    const cols = rows.length ? Object.keys(rows[0]) : [];
+    const shown = rows.slice(0, 200);
+    $("out").innerHTML = (rows.length ? table(cols, shown.map((r) => cols.map((c) => show(r[c])))) : `<p class="mut">(no rows)</p>`)
+      + (rows.length > shown.length ? `<p class="mut">… ${rows.length - shown.length} more rows</p>` : "");
+  } catch (e) { $("out").innerHTML = `<p class="risk">${esc(e.message)}</p>`; }
+}
+
+try {
+  const t0 = performance.now();
+  await init({ module_or_path: new Request("__CDN__/relate_bg.wasm", { integrity: "__SRI_WASM__", mode: "cors" }) });
+  build();
+  const n = run("MATCH (n) RETURN count(n) AS n")[0].n, m = run("MATCH ()-[r]->() RETURN count(r) AS m")[0].m;
+  $("status").textContent = `Relate ${D.relate} running in this page: ${n} nodes and ${m} relationships loaded in ${Math.round(performance.now() - t0)} ms`;
+  $("status").className = "ok";
+  const people = [...D.people].sort((a, b) => (a.status === "left") === (b.status === "left") ? byStr("email")(a, b) : a.status === "left" ? -1 : 1);
+  $("who").innerHTML = people.map((p) => `<option value="${esc(p.email)}">${esc(p.email)}${p.status === "left" ? " (left)" : ""}</option>`).join("");
+  $("who").disabled = false;
+  $("who").value = D.start && D.people.some((p) => p.email === D.start) ? D.start : people[0].email;
+  $("who").onchange = () => showPerson($("who").value);
+  showPerson($("who").value);
+  showCompany();
+  $("examples").innerHTML = D.examples.map((e, i) => `<button data-i="${i}">${esc(e.title)}</button>`).join("");
+  for (const b of $("examples").querySelectorAll("button")) b.onclick = () => { $("q").value = D.examples[b.dataset.i].query; runOwn(); };
+  $("run").disabled = $("reset").disabled = false;
+  $("run").onclick = runOwn;
+  $("reset").onclick = () => { build(); $("out").innerHTML = '<p class="mut">The graph was rebuilt from the exports.</p>'; };
+  window.offgraph = { ready: true, reach, checklist, whatif, ask, run, svg, people: D.people };
+} catch (e) {
+  $("status").textContent = "Relate could not start in this browser: " + e.message;
+  $("status").className = "err";
+  window.offgraph = { ready: false, error: e.message };
+}
+</script>
+</body>
+</html>

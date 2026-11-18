@@ -48,6 +48,29 @@ def reach(ex: Exports, email: str) -> set[tuple[str, str, str]]:
     return out
 
 
+def reach_paths(ex: Exports, email: str) -> dict[tuple[str, str], list[str]]:
+    """(resource, via) -> the shortest chain of groups from a group the person is a
+    member of up to `via`, the group holding the grant (ties: the alphabetically
+    first chain). Direct grants are not included."""
+    par = parents(ex)
+    best: dict[str, list[str]] = {}
+    todo = sorted([m["group"]] for m in ex.memberships if m["email"] == email)
+    while todo:  # breadth first: chains of length n before n + 1
+        nxt = []
+        for chain in todo:
+            g = chain[-1]
+            if g in best and (len(best[g]), best[g]) <= (len(chain), chain):
+                continue
+            best[g] = chain
+            nxt.extend(chain + [q] for q in sorted(par.get(g, ())) if q not in chain)
+        todo = sorted(nxt)
+    out = {}
+    for g in ex.grants:
+        if g["grantee_type"] == "group" and g["grantee"] in best:
+            out[(g["resource"], g["grantee"])] = best[g["grantee"]]
+    return out
+
+
 def orphans(ex: Exports, email: str) -> dict[str, str | None]:
     """resource -> suggested new owner: the lowest-email active admin of a group
     granted edit (or admin) on the resource itself (not of groups nested under it,
@@ -136,3 +159,52 @@ def checklist(ex: Exports, email: str) -> list[str]:
         steps.append(f"Revoke the direct grant on {res}")
     steps.append("Disable the account everywhere")
     return steps
+
+
+def no_admin_groups(ex: Exports) -> set[str]:
+    """Groups with no active admin at all."""
+    active = {p["email"] for p in ex.people if p["status"] == "active"}
+    have = {m["group"] for m in ex.memberships if m["role"] == "admin" and m["email"] in active}
+    return set(ex.group_names()) - have
+
+
+def audit(ex: Exports) -> dict:
+    """The company-wide view: per leaver, what they own alone, the groups they are
+    the only admin of, what they can still edit, their seats and checklist."""
+    leavers = []
+    for p in sorted(ex.people, key=lambda p: p["email"]):
+        if p["status"] != "left":
+            continue
+        e = p["email"]
+        seat_rows = [(a, price) for em, a, price in seats(ex) if em == e]
+        leavers.append({
+            "email": e,
+            "orphans": dict(sorted(orphans(ex, e).items())),
+            "sole_admin": sorted(sole_admin(ex, e)),
+            "can_edit": sorted({r for r, a, _v in reach(ex, e) if a in ("edit", "admin")}),
+            "seats_usd": round(sum(price for _a, price in seat_rows), 2),
+            "steps": checklist(ex, e),
+        })
+    return {"leavers": leavers, "no_admin_groups": sorted(no_admin_groups(ex)),
+            "seats": len(seats(ex)), "seats_usd": round(sum(x for _e, _a, x in seats(ex)), 2)}
+
+
+def whatif(ex: Exports, emails: list[str]) -> dict:
+    """The same as engine.whatif, from the CSV rows."""
+    from dataclasses import replace
+
+    def broken(e: Exports):
+        active = {p["email"] for p in e.people if p["status"] == "active"}
+        unowned = {r["resource"] for r in e.resources if r["owner"] not in active}
+        editable = {r for p in active for r, a, _v in reach(e, p) if a in ("edit", "admin")}
+        no_editor = {r["resource"] for r in e.resources} - editable
+        return unowned, no_admin_groups(e), no_editor
+    after_ex = replace(ex, people=[{**p, "status": "left"} if p["email"] in emails else p for p in ex.people])
+    b, a = broken(ex), broken(after_ex)
+    active_before = {p["email"] for p in ex.people if p["status"] == "active"}
+    seats_rows = sorted((acc["email"], acc["app"], ex.prices[acc["app"]]) for acc in ex.accounts
+                        if acc["email"] in emails and acc["email"] in active_before and acc["paid"] == "yes")
+    return {"already_left": sorted(e for e in emails if e not in active_before),
+            "unowned": sorted(a[0] - b[0]), "no_admin_groups": sorted(a[1] - b[1]),
+            "no_editor": sorted(a[2] - b[2]), "seats": seats_rows,
+            "seats_usd": round(sum(x for _e, _a, x in seats_rows), 2)}

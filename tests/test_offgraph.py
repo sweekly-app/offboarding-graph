@@ -143,6 +143,7 @@ def test_report_shows_every_reachable_and_orphaned_resource(ex):
         for r in ids:
             assert f">{r}</text>" in page
         assert page.count('class="n res risk"') == len(oracle.orphans(ex, p["email"]))
+        assert f"<b>{len(ids)}</b>" in page and page.count('<g class="n res') == len(ids)
         assert "<script" not in page and "http" not in page.split("<main>")[1]
 
 
@@ -469,3 +470,421 @@ def test_no_text_file_relies_on_the_locale_encoding():
                     and "test_no_text_file" not in line and "re.search" not in line:
                 nxt = f.read_text(encoding="utf-8").splitlines()[n:n + 8]
                 assert any("encoding=" in l for l in nxt), f"{f.name}:{n}"
+
+
+# --- Review round 1 (2026-11-15): the hops made visible -------------------------
+
+DEEP = {**BASE, "groups": ["ops,all", "all,", "a,b", "b,c", "c,all", "x,c"],
+        "memberships": BASE["memberships"] + ["max@example.com,a,member", "max@example.com,x,member"],
+        "resources": BASE["resources"] + ["r2,Docs,shared drive,Budget,nia@example.com"],
+        "grants": ["r1,all,group,view", "r2,c,group,edit"]}
+
+
+def test_reach_paths_are_shortest_and_valid(tmp_path):
+    ex = load(write_exports(tmp_path / "x", **DEEP), demo.prices())
+    got = oracle.reach_paths(ex, "max@example.com")
+    assert got[("r2", "c")] == ["x", "c"]           # x -> c beats a -> b -> c
+    assert got[("r1", "all")] == ["ops", "all"]     # ops -> all beats x -> c -> all
+    par = {(g["group"], g["parent"]) for g in ex.groups}
+    member = {m["group"] for m in ex.memberships if m["email"] == "max@example.com"}
+    for (res, via), chain in got.items():
+        assert chain[0] in member and chain[-1] == via
+        assert all((a, b) in par for a, b in zip(chain, chain[1:]))
+    assert set(got) == {(r, v) for r, _a, v in oracle.reach(ex, "max@example.com") if v != "direct"}
+
+
+def test_demo_has_a_three_group_chain(ex):
+    fin = next(m["email"] for m in ex.memberships if m["group"] == "finance" and m["role"] == "admin")
+    chains = oracle.reach_paths(ex, fin).values()
+    assert ["budget-owners", "spend-approvers", "leadership"] in chains
+
+
+def test_report_draws_the_chain_and_marks_sole_admin(ex):
+    from offgraph import report
+    fin = next(m["email"] for m in ex.memberships if m["group"] == "finance" and m["role"] == "admin")
+    titles = {r["resource"]: r["title"] for r in ex.resources}
+    paths = oracle.reach_paths(ex, fin)
+    reach = [{"resource": r, "access": a, "via": v, "title": titles[r],
+              "path": ["direct"] if v == "direct" else paths[(r, v)]} for r, a, v in oracle.reach(ex, fin)]
+    page = report.html(fin, reach, [], ["finance"], [], ["Disable the account everywhere"])
+    for g in ("budget-owners", "spend-approvers", "leadership"):
+        assert f">{g}</text>" in page
+    assert page.count(">CHILD_OF</text>") >= 3 and ">MEMBER_OF</text>" in page
+    assert 'class="n grp sole"' in page and "no other active admin" in page
+    assert "</b>group left without an admin" in page
+
+
+@pytest.mark.engine
+@pytest.mark.skipif(not engine.available(), reason="Relate not installed")
+@pytest.mark.parametrize("which", ["demo", "deep"])
+def test_engine_paths_match_oracle(ex, tmp_path, which):
+    from offgraph.cli import _reach
+    data = ex if which == "demo" else load(write_exports(tmp_path / "x", **DEEP), demo.prices())
+    store = tmp_path / "p.rl"
+    engine.load(store, data)
+    for p in data.people:
+        e = p["email"]
+        want = oracle.reach_paths(data, e)
+        for r in _reach(store, e):
+            if r["via"] == "direct":
+                assert r["path"] == ["direct"]
+            else:
+                assert r["path"] == want[(r["resource"], r["via"])], (e, r)
+
+
+@pytest.mark.engine
+@pytest.mark.skipif(not engine.available(), reason="Relate not installed")
+def test_cli_shows_paths_properties_and_empty_answers(tmp_path, capsys):
+    from offgraph.cli import main
+    store = str(tmp_path / "t.rl")
+    assert main(["--store", store, "load", str(write_exports(tmp_path / "x", **DEEP))]) == 0
+    capsys.readouterr()
+    assert main(["--store", store, "reach", "max@example.com"]) == 0
+    assert "path=x > c" in capsys.readouterr().out
+    assert main(["--store", store, "sole-admin", "max@example.com"]) == 0
+    assert capsys.readouterr().out.startswith("none: ")
+    assert main(["--store", store, "orphans", "max@example.com"]) == 0
+    assert capsys.readouterr().out.startswith("none: ")
+    assert main(["--store", store, "cypher",
+                 "MATCH path = (p:Person {email: 'max@example.com'})-[:MEMBER_OF]->(g:Group {name: 'x'}) RETURN p, path"]) == 0
+    out = capsys.readouterr().out
+    assert "(:Person {email: 'max@example.com'" in out and "-[:MEMBER_OF {role: 'member'}]->(:Group {name: 'x'})" in out
+    assert main(["--store", store, "cypher", "MATCH (p:Person) RETURN p.email", "--limit", "1"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert len(out) == 2 and out[1] == "... 3 more rows (--limit 0 shows all)"
+    assert main(["--store", store, "--json", "cypher", "MATCH (g:Group {name: 'x'}) RETURN g"]) == 0
+    assert json.loads(capsys.readouterr().out) == [{"g": {"labels": ["Group"], "name": "x"}}]
+
+
+def test_load_problems_are_capped(tmp_path, capsys):
+    from offgraph.cli import MAX_PROBLEMS, main
+    rows = [f"p{i}@example.com,ghost,member" for i in range(40)]
+    bad = write_exports(tmp_path / "bad", **{**BASE, "memberships": rows,
+                                             "accounts": [f"q{i}@example.com,Chat,yes,no,x" for i in range(5)]})
+    assert main(["--store", str(tmp_path / "b.rl"), "load", str(bad)]) == 2
+    err = capsys.readouterr().err.splitlines()
+    assert len(err) <= MAX_PROBLEMS + 2
+
+
+@pytest.mark.engine
+@pytest.mark.skipif(not engine.available(), reason="Relate not installed")
+def test_mcp_tools_answer_like_the_cli(ex, tmp_path):
+    import io
+    import subprocess
+    import sys
+    from offgraph import mcp
+    from offgraph.cli import _checklist, _reach
+    store = tmp_path / "m.rl"
+    engine.load(store, ex)
+    fin = next(m["email"] for m in ex.memberships if m["group"] == "finance" and m["role"] == "admin")
+    msgs = [{"jsonrpc": "2.0", "id": 1, "method": "initialize",
+             "params": {"protocolVersion": mcp.PROTOCOL, "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}}},
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+            {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+             "params": {"name": "offboarding_checklist", "arguments": {"email": fin.upper()}}},
+            {"jsonrpc": "2.0", "id": 4, "method": "tools/call",
+             "params": {"name": "access_paths", "arguments": {"email": fin}}},
+            {"jsonrpc": "2.0", "id": 5, "method": "tools/call",
+             "params": {"name": "who_takes_over", "arguments": {"email": "nobody@example.com"}}},
+            {"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "run_cypher", "arguments": {}}},
+            {"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "leaver_seats"}}]
+    stdin = "\n".join(json.dumps(m) for m in msgs) + "\nnot json\n"
+    # the real command, as an assistant would start it
+    res = subprocess.run([sys.executable, "-m", "offgraph.cli", "--store", str(store), "mcp"], input=stdin,
+                         capture_output=True, text=True, encoding="utf-8", timeout=60,
+                         cwd=Path(__file__).parent.parent)
+    assert res.returncode == 0, res.stderr
+    replies = [json.loads(l) for l in res.stdout.splitlines()]
+    assert [r["id"] for r in replies] == [1, 2, 3, 4, 5, 6, 7, None]  # no reply to the notification
+    assert replies[0]["result"]["capabilities"] == {"tools": {}}
+    names = {t["name"] for t in replies[1]["result"]["tools"]}
+    assert names == {"offboarding_checklist", "who_takes_over", "access_paths", "sole_admin_groups", "leaver_seats"}
+    assert replies[2]["result"]["structuredContent"]["steps"] == _checklist(store, fin)
+    assert replies[3]["result"]["structuredContent"]["resources"] == _reach(store, fin)
+    assert replies[4]["result"]["isError"] is True
+    assert replies[5]["error"]["code"] == -32602
+    assert replies[6]["result"]["structuredContent"]["total_monthly_usd"] == 180.0
+    assert replies[7]["error"]["code"] == -32700
+    out = io.StringIO()
+    assert mcp.serve(store, io.StringIO('{"jsonrpc":"2.0","id":9,"method":"ping"}\n'), out) == 0
+    assert json.loads(out.getvalue()) == {"jsonrpc": "2.0", "id": 9, "result": {}}
+    r = mcp.handle(store, {"jsonrpc": "2.0", "id": 10, "method": "tools/call",
+                           "params": {"name": "who_takes_over", "arguments": {}}})
+    assert r["result"]["isError"] and "needs an email" in r["result"]["content"][0]["text"]
+
+
+@pytest.mark.engine
+@pytest.mark.skipif(not engine.available(), reason="Relate not installed")
+def test_audit_matches_oracle_and_the_per_person_answers(ex, tmp_path, capsys):
+    from offgraph import audit
+    from offgraph.cli import main
+    store = tmp_path / "a.rl"
+    engine.load(store, ex)
+    s = audit.summary(store)
+    assert audit.plain(s) == oracle.audit(ex)
+    assert s["seats_usd"] == round(sum(l["seats_usd"] for l in s["leavers"]), 2) == 180.0
+    out = tmp_path / "audit.html"
+    assert main(["--store", str(store), "audit", "-o", str(out)]) == 0
+    text = capsys.readouterr().out
+    assert text.startswith("5 people marked as left; 19 paid seats still held, 180.00 USD a month")
+    page = out.read_text(encoding="utf-8")
+    assert page.count("<svg") == 5 and "<script" not in page
+    for l in s["leavers"]:
+        assert f"id='{l['email']}'" in page
+    assert main(["--store", str(store), "--json", "audit"]) == 0
+    assert json.loads(capsys.readouterr().out) == oracle.audit(ex)
+    assert main(["--store", str(store), "audit", "-o", str(tmp_path / "no" / "such" / "a.html")]) == 2
+    res = capsys.readouterr()
+    assert res.out == "" and res.err.startswith("offgraph: cannot write ")
+
+
+@pytest.mark.engine
+@pytest.mark.skipif(not engine.available(), reason="Relate not installed")
+def test_cypher_write_is_refused_in_offgraph_words(ex, tmp_path, capsys):
+    from offgraph.cli import main
+    store = tmp_path / "w.rl"
+    engine.load(store, ex)
+    before = store.read_bytes()
+    assert main(["--store", str(store), "cypher", "MATCH (n) DETACH DELETE n"]) == 2
+    assert "cypher is read-only" in capsys.readouterr().err
+    assert store.read_bytes() == before
+
+
+# --- GitHub import (documented REST shapes; examples/github is made up in that shape) ---
+
+GH = Path(__file__).parent.parent / "examples" / "github"
+
+
+def _gh_tables(tmp_path):
+    from offgraph import github
+    out = tmp_path / "gh"
+    github.write(github.convert(GH, GH / "logins.csv"), out,
+                 {"people.csv": GH / "people.csv", "prices.csv": GH / "prices.csv"})
+    return out
+
+
+def test_import_github_maps_teams_roles_and_permissions(tmp_path):
+    out = _gh_tables(tmp_path)
+    from offgraph.data import read_prices
+    ex = load(out, read_prices(out, demo.prices()))
+    assert {(g["group"], g["parent"]) for g in ex.groups} == {
+        ("engineering", ""), ("platform", "engineering"), ("release-managers", "platform")}
+    roles = {(m["email"], m["group"]): m["role"] for m in ex.memberships}
+    assert roles[("ana.k@example.com", "engineering")] == "admin"      # maintainer
+    assert roles[("cy.m@example.com", "engineering")] == "member"
+    assert len(ex.accounts) == 4                                        # two pages back to back
+    assert {a["email"] for a in ex.accounts if a["admin"] == "yes"} == {"ana.k@example.com"}
+    acc = {(g["resource"], g["grantee"]): g["access"] for g in ex.grants}
+    assert acc[("GitHub:example-org/api", "engineering")] == "edit"     # write
+    assert acc[("GitHub:example-org/docs-site", "engineering")] == "view"  # read
+    assert acc[("GitHub:example-org/deploy-scripts", "di.n@example.com")] == "admin"
+    owners = {r["resource"]: r["owner"] for r in ex.resources}
+    assert owners["GitHub:example-org/docs-site"] == "cy.m@example.com"  # the direct admin, not the writer
+    assert oracle.orphans_with_reason(ex, "di.n@example.com") == {
+        "GitHub:example-org/deploy-scripts": ("bo.l@example.com", "admin of a group that can edit it")}
+    assert oracle.reach_paths(ex, "di.n@example.com")[("GitHub:example-org/api", "engineering")] == [
+        "release-managers", "platform", "engineering"]
+
+
+@pytest.mark.engine
+@pytest.mark.skipif(not engine.available(), reason="Relate not installed")
+def test_import_github_end_to_end(tmp_path, capsys):
+    from offgraph.cli import _checklist, _reach, main
+    E = str(GH)
+    out = tmp_path / "gh"
+    assert main(["import-github", E, "--logins", f"{E}/logins.csv", "--people", f"{E}/people.csv",
+                 "--prices", f"{E}/prices.csv", "-o", str(out)]) == 0
+    store = tmp_path / "gh.rl"
+    assert main(["--store", str(store), "load", str(out)]) == 0
+    from offgraph.data import read_prices
+    ex = load(out, read_prices(out, demo.prices()))
+    for p in ex.people:
+        e = p["email"]
+        assert {(r["resource"], r["access"], r["via"]) for r in engine.rows(store, "reach", e)} == oracle.reach(ex, e)
+        assert _checklist(store, e) == oracle.checklist(ex, e)
+    assert any(r["path"] == ["release-managers", "platform", "engineering"] for r in _reach(store, "di.n@example.com"))
+    capsys.readouterr()
+    assert main(["import-github", E, "--logins", f"{E}/logins.csv", "-o", str(out)]) == 2
+    assert "already has groups.csv" in capsys.readouterr().err
+
+
+def test_import_github_refuses_what_it_cannot_map(tmp_path):
+    import shutil as sh
+    from offgraph import github
+    from offgraph.data import ExportError
+    src = tmp_path / "src"
+    sh.copytree(GH, src)
+    (src / "logins.csv").write_text("login,email\nexample-ana-k,ana.k@example.com\n", encoding="utf-8")
+    (src / "collaborators" / "docs-site.json").write_text("[]", encoding="utf-8")
+    with pytest.raises(ExportError) as e:
+        github.convert(src, src / "logins.csv")
+    assert "no email for example-bo-l, example-cy-m, example-di-n" in str(e.value) and "no owner for docs-site" in str(e.value)
+    (src / "repo-owners.csv").write_text("repo,owner\ndocs-site,example-ana-k\n", encoding="utf-8")
+    (src / "logins.csv").write_text((GH / "logins.csv").read_text(encoding="utf-8"), encoding="utf-8")
+    t = github.convert(src, src / "logins.csv", src / "repo-owners.csv")
+    assert {r["title"]: r["owner"] for r in t["resources.csv"]}["docs-site"] == "ana.k@example.com"
+    (src / "teams.json").write_text('{"message": "Not Found"}', encoding="utf-8")
+    with pytest.raises(ExportError, match="expected a JSON array"):
+        github.convert(src, src / "logins.csv")
+
+
+def test_demo_refuses_to_overwrite_exports(tmp_path, capsys):
+    from offgraph.cli import main
+    (tmp_path / "people.csv").write_text("email,name,team,status\nme@example.com,Me,Ops,active\n", encoding="utf-8")
+    assert main(["demo", str(tmp_path)]) == 2
+    assert "already has people.csv" in capsys.readouterr().err
+    assert (tmp_path / "people.csv").read_text(encoding="utf-8").startswith("email,name,team,status\nme@")
+    assert main(["demo", str(tmp_path), "--force"]) == 0
+
+
+def test_mcp_malformed_params_get_an_error(tmp_path):
+    from offgraph import mcp
+    for params in ([1], {"name": ["x"]}, {"name": "access_paths", "arguments": "dev"}):
+        r = mcp.handle(tmp_path / "none.rl", {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": params})
+        assert r["error"]["code"] == -32602
+
+
+@pytest.mark.engine
+@pytest.mark.skipif(not engine.available(), reason="Relate not installed")
+def test_whatif_matches_oracle_and_leaves_the_store_untouched(ex, tmp_path, capsys):
+    from offgraph.cli import main
+    store = tmp_path / "w.rl"
+    engine.load(store, ex)
+    before = store.read_bytes()
+    groups = [[p["email"]] for p in ex.people] + [[p["email"] for p in ex.people if p["team"] == "Ops"]]
+    for emails in groups:
+        got = engine.whatif(store, emails)
+        want = oracle.whatif(ex, emails)
+        assert [r["resource"] for r in got["unowned"]] == want["unowned"], emails
+        assert got["no_admin_groups"] == want["no_admin_groups"], emails
+        assert [r["resource"] for r in got["no_editor"]] == want["no_editor"], emails
+        assert sorted((r["email"], r["app"], float(r["monthly_usd"])) for r in got["seats"]) == want["seats"]
+        assert got["seats_usd"] == want["seats_usd"]
+    assert store.read_bytes() == before
+    ops = groups[-1]
+    assert oracle.whatif(ex, ops)["no_editor"], "removing a whole team must leave something nobody can edit"
+    fin_tia = next(m["email"] for m in ex.memberships if m["group"] == "leadership" and m["role"] == "admin")
+    assert main(["--store", str(store), "whatif", fin_tia.upper()]) == 0
+    out = capsys.readouterr().out
+    assert "groups left with no active admin: budget-owners, leadership, spend-approvers" in out
+    assert "(Company budget)" in out and "rolled back" in out
+    assert main(["--store", str(store), "whatif", "nobody@example.com"]) == 2
+    assert store.read_bytes() == before
+
+
+@pytest.mark.engine
+@pytest.mark.skipif(not engine.available(), reason="Relate not installed")
+def test_example_mcp_client_talks_to_the_server():
+    import subprocess
+    import sys
+    root = Path(__file__).parent.parent
+    res = subprocess.run([sys.executable, "examples/mcp_client.py", "dev.ruiz@example.com",
+                          sys.executable, "-m", "offgraph.cli", "--store", "demo/offboarding.rl", "mcp"],
+                         cwd=root, capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert res.returncode == 0, res.stderr
+    assert "tools/list: 5 tools" in res.stdout and "1. Transfer ownership of R001" in res.stdout
+    bare = subprocess.run([sys.executable, "examples/mcp_client.py"], cwd=root, capture_output=True, text=True, timeout=60)
+    assert bare.returncode == 1 and bare.stderr.startswith("usage:") and "Traceback" not in bare.stderr
+
+
+# --- Re-audit 43bb616c: RO-52, RO-53, RO-54 ---
+
+@pytest.mark.parametrize("change", ["empty-members", "missing-members", "missing-maintainers",
+                                    "missing-team-repos", "missing-collaborators"])
+def test_import_github_refuses_empty_or_missing_files(tmp_path, change):
+    import shutil as sh
+    from offgraph import github
+    from offgraph.data import ExportError
+    src = tmp_path / "src"
+    sh.copytree(GH, src)
+    target = {"empty-members": "team-members/release-managers.json",
+              "missing-members": "team-members/release-managers.json",
+              "missing-maintainers": "team-maintainers/release-managers.json",
+              "missing-team-repos": "team-repos/platform.json",
+              "missing-collaborators": "collaborators/api.json"}[change]
+    if change.startswith("empty"):
+        (src / target).write_text("", encoding="utf-8")
+    else:
+        (src / target).unlink()
+    with pytest.raises(ExportError) as e:
+        github.convert(src, src / "logins.csv", src / "repo-owners.csv" if (src / "repo-owners.csv").exists() else None)
+    assert target in str(e.value)
+
+
+def test_import_github_skips_inherited_team_members(tmp_path):
+    from offgraph import github
+    t = github.convert(GH, GH / "logins.csv")
+    pairs = {(m["email"], m["group"]) for m in t["memberships.csv"]}
+    # di-n is listed under engineering and platform with inherited: true (a member of release-managers)
+    assert ("di.n@example.com", "release-managers") in pairs
+    assert ("di.n@example.com", "platform") not in pairs and ("di.n@example.com", "engineering") not in pairs
+    raw = json.loads((GH / "team-members" / "engineering.json").read_text(encoding="utf-8"))
+    assert any(u.get("inherited") for u in raw), "the example must carry the documented inherited flag"
+
+
+@pytest.mark.engine
+@pytest.mark.skipif(not engine.available(), reason="Relate not installed")
+def test_whatif_on_someone_already_left_says_so(ex, tmp_path, capsys):
+    from offgraph.cli import main
+    store = tmp_path / "l.rl"
+    engine.load(store, ex)
+    left = next(p["email"] for p in ex.people if p["status"] == "left")
+    assert engine.whatif(store, [left])["already_left"] == [left]
+    assert main(["--store", str(store), "whatif", left]) == 0
+    out = capsys.readouterr().out
+    assert f"{left} is already marked as left" in out and "offgraph report" in out
+
+
+@pytest.mark.engine
+@pytest.mark.skipif(not engine.available(), reason="Relate not installed")
+def test_mcp_server_survives_a_cp1252_console(ex, tmp_path):
+    import os
+    import subprocess
+    import sys
+    store = tmp_path / "c.rl"
+    engine.load(store, ex)
+    msg = {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+           "params": {"name": "access_paths", "arguments": {"email": "zoë.ñ@example.com"}}}
+    env = {**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"}
+    res = subprocess.run([sys.executable, "-m", "offgraph.cli", "--store", str(store), "mcp"],
+                         input=(json.dumps(msg, ensure_ascii=False) + "\n").encode("utf-8"),
+                         capture_output=True, env=env, timeout=60, cwd=Path(__file__).parent.parent)
+    assert res.returncode == 0, res.stderr
+    reply = json.loads(res.stdout.decode("utf-8"))
+    assert reply["result"]["isError"] and "zoë.ñ@example.com" in reply["result"]["content"][0]["text"]
+
+
+# --- The browser page (docs/index.html, `offgraph web`) ---
+
+def test_web_page_is_the_generated_page_for_the_demo(tmp_path):
+    from offgraph import web
+    root = Path(__file__).parent.parent
+    ex = load(root / "demo" / "exports", demo.prices())
+    want = web.page(ex, "an invented 60-person demo company", "dev.ruiz@example.com", root / "examples.cypher",
+                    "the demo company")
+    assert (root / "docs" / "index.html").read_text(encoding="utf-8") == want, \
+        "regenerate: offgraph web demo/exports -o docs/index.html --title 'an invented 60-person demo company' --name 'the demo company' --start dev.ruiz@example.com"
+    assert "__DATA__" not in want and "__RELATE__" not in want and "__TITLE__" not in want
+    blob = want.split('<script type="application/json" id="data">', 1)[1].split("</script>", 1)[0]
+    data = json.loads(blob)
+    assert data["questions"]["reach"] == graph.QUESTIONS["reach"].strip() and data["remove"] == graph.REMOVE
+    assert len(data["examples"]) == 5 and len(data["people"]) == 60
+    assert "@relate/relate-wasm@1.0.1/relate.js" in want and "__" + "SRI" not in want
+    for name, digest in web.SRI.items():  # every CDN file is pinned by its hash
+        assert want.count(digest) >= 1, name
+    assert 'integrity="' + web.SRI["relate.js"] + '" crossorigin="anonymous"' in want
+
+
+def test_web_command_and_escaping(tmp_path, capsys):
+    from offgraph.cli import main
+    from offgraph import web
+    folder = write_exports(tmp_path / "x", **{**BASE, "resources": ["r1,Chat,channel,</script><!--<script><b>x &amp;,lea@example.com"]})
+    out = tmp_path / "p.html"
+    assert main(["web", str(folder), "-o", str(out), "--title", "<Acme>", "--start", "LEA@example.com"]) == 0
+    page = out.read_text(encoding="utf-8")
+    assert "&lt;Acme&gt;" in page and page.count("</script>") == 3  # import map, data, module: the data cannot close its own tag
+    blob = page.split('id="data">', 1)[1].split("</script>", 1)[0]
+    assert "<" not in blob and ">" not in blob and "&" not in blob
+    assert any("<!--<script>" in r[0]["title"] for r in [json.loads(blob)["load"][6][1]["rows"]])
+    assert main(["web", str(folder), "-o", str(out), "--start", "nobody@example.com"]) == 2

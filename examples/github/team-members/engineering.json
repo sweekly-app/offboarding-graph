@@ -1,0 +1,43 @@
+[
+  {
+    "login": "example-ana-k",
+    "id": 11,
+    "node_id": "U_11",
+    "avatar_url": "",
+    "url": "https://api.github.com/users/example-ana-k",
+    "html_url": "https://github.com/example-ana-k",
+    "type": "User",
+    "site_admin": false
+  },
+  {
+    "login": "example-bo-l",
+    "id": 12,
+    "node_id": "U_12",
+    "avatar_url": "",
+    "url": "https://api.github.com/users/example-bo-l",
+    "html_url": "https://github.com/example-bo-l",
+    "type": "User",
+    "site_admin": false
+  },
+  {
+    "login": "example-cy-m",
+    "id": 13,
+    "node_id": "U_13",
+    "avatar_url": "",
+    "url": "https://api.github.com/users/example-cy-m",
+    "html_url": "https://github.com/example-cy-m",
+    "type": "User",
+    "site_admin": false
+  },
+  {
+    "login": "example-di-n",
+    "id": 14,
+    "node_id": "U_14",
+    "avatar_url": "",
+    "url": "https://api.github.com/users/example-di-n",
+    "html_url": "https://github.com/example-di-n",
+    "type": "User",
+    "site_admin": false,
+    "inherited": true
+  }
+]

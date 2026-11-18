@@ -83,3 +83,43 @@ def rows(store: Path, name: str, email: str | None = None) -> list[dict]:
     if backend() == "library":
         return run(store, graph.QUESTIONS[name].strip(), graph.params(name, email))
     return run(store, graph.query(name, email))
+
+
+def whatif(store: Path, emails: list[str]) -> dict:
+    """What breaks if these people are removed: their status is set to 'left'
+    inside a Relate transaction on a temporary copy of the store, the questions
+    are asked before and after, and the transaction is rolled back. The store
+    itself is never opened for writing."""
+    import shutil
+    import tempfile
+    if not Path(store).exists():
+        raise FileNotFoundError(f"no Relate store at {store}: run `offgraph load <folder>` first")
+    if backend() != "library":
+        raise RuntimeError("whatif needs the Python library (relate-db); the CLI path cannot roll back")
+    with tempfile.TemporaryDirectory() as tmp:
+        copy = Path(tmp) / Path(store).name
+        (shutil.copytree if Path(store).is_dir() else shutil.copy2)(store, copy)
+        conn = _relate.connect(str(copy))
+        try:
+            conn.autocommit = False
+            ask = lambda name, p=None: [dict(r) for r in conn.execute(graph.QUESTIONS[name].strip(), p or {})]
+            before = {n: ask(n) for n in ("unowned", "no_admin_groups", "no_editor")}
+            seats = ask("paid_seats_of", {"emails": emails})
+            left = [r["email"] for r in conn.execute(
+                "MATCH (p:Person) WHERE p.email IN $emails AND p.status <> 'active' RETURN p.email AS email",
+                {"emails": emails})]
+            conn.execute(graph.REMOVE, {"emails": emails})
+            after = {n: ask(n) for n in ("unowned", "no_admin_groups", "no_editor")}
+            conn.rollback()
+        finally:
+            conn.close()
+
+    def new(name: str, key: str) -> list[dict]:
+        old = {r[key] for r in before[name]}
+        return sorted((r for r in after[name] if r[key] not in old), key=lambda r: r[key])
+    return {"removed": emails, "already_left": sorted(left),
+            "unowned": new("unowned", "resource"),
+            "no_admin_groups": [r["group_name"] for r in new("no_admin_groups", "group_name")],
+            "no_editor": new("no_editor", "resource"),
+            "seats": sorted(seats, key=lambda r: (r["email"], r["app"])),
+            "seats_usd": round(sum(float(r["monthly_usd"]) for r in seats), 2)}

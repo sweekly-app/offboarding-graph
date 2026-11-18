@@ -1,0 +1,20 @@
+[
+  {
+    "login": "example-ana-k",
+    "id": 11,
+    "node_id": "U_11",
+    "avatar_url": "",
+    "url": "https://api.github.com/users/example-ana-k",
+    "html_url": "https://github.com/example-ana-k",
+    "type": "User",
+    "site_admin": false,
+    "permissions": {
+      "admin": true,
+      "maintain": true,
+      "push": true,
+      "triage": true,
+      "pull": true
+    },
+    "role_name": "admin"
+  }
+]

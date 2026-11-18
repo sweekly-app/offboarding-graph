@@ -1,0 +1,35 @@
+[
+  {
+    "id": 101,
+    "node_id": "R_101",
+    "name": "api",
+    "full_name": "example-org/api",
+    "private": true,
+    "owner": {
+      "login": "example-org",
+      "type": "Organization"
+    }
+  },
+  {
+    "id": 102,
+    "node_id": "R_102",
+    "name": "deploy-scripts",
+    "full_name": "example-org/deploy-scripts",
+    "private": true,
+    "owner": {
+      "login": "example-org",
+      "type": "Organization"
+    }
+  },
+  {
+    "id": 103,
+    "node_id": "R_103",
+    "name": "docs-site",
+    "full_name": "example-org/docs-site",
+    "private": true,
+    "owner": {
+      "login": "example-org",
+      "type": "Organization"
+    }
+  }
+]

@@ -1,0 +1,40 @@
+[
+  {
+    "id": 1,
+    "node_id": "T_1",
+    "name": "Engineering",
+    "slug": "engineering",
+    "description": "",
+    "privacy": "closed",
+    "permission": "pull",
+    "parent": null
+  },
+  {
+    "id": 2,
+    "node_id": "T_2",
+    "name": "Platform",
+    "slug": "platform",
+    "description": "",
+    "privacy": "closed",
+    "permission": "pull",
+    "parent": {
+      "id": 1,
+      "slug": "engineering",
+      "name": "Engineering"
+    }
+  },
+  {
+    "id": 3,
+    "node_id": "T_3",
+    "name": "Release Managers",
+    "slug": "release-managers",
+    "description": "",
+    "privacy": "closed",
+    "permission": "pull",
+    "parent": {
+      "id": 2,
+      "slug": "platform",
+      "name": "Platform"
+    }
+  }
+]

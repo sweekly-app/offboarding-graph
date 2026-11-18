@@ -1,0 +1,38 @@
+[
+  {
+    "login": "example-cy-m",
+    "id": 13,
+    "node_id": "U_13",
+    "avatar_url": "",
+    "url": "https://api.github.com/users/example-cy-m",
+    "html_url": "https://github.com/example-cy-m",
+    "type": "User",
+    "site_admin": false,
+    "permissions": {
+      "admin": true,
+      "maintain": true,
+      "push": true,
+      "triage": true,
+      "pull": true
+    },
+    "role_name": "admin"
+  },
+  {
+    "login": "example-bo-l",
+    "id": 12,
+    "node_id": "U_12",
+    "avatar_url": "",
+    "url": "https://api.github.com/users/example-bo-l",
+    "html_url": "https://github.com/example-bo-l",
+    "type": "User",
+    "site_admin": false,
+    "permissions": {
+      "admin": false,
+      "maintain": false,
+      "push": true,
+      "triage": true,
+      "pull": true
+    },
+    "role_name": "write"
+  }
+]

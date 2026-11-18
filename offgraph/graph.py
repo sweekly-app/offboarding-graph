@@ -103,6 +103,12 @@ UNION
 MATCH (p:Person {email: $email})-[c:CAN]->(r:Resource)
 RETURN DISTINCT r.id AS resource, r.title AS title, r.app AS app, c.access AS access, 'direct' AS via
 """,
+    "paths": """
+MATCH (p:Person {email: $email})-[:MEMBER_OF]->(g0:Group)
+MATCH path = (g0)-[:CHILD_OF*0..6]->(g:Group)
+MATCH (g)-[:CAN]->(r:Resource)
+RETURN DISTINCT r.id AS resource, g.name AS via, [n IN nodes(path) | n.name] AS chain
+""",
     "orphans": """
 MATCH (p:Person {email: $email})-[:OWNS]->(r:Resource)
 OPTIONAL MATCH (a:Person {status: 'active'})-[:MEMBER_OF {role: 'admin'}]->(:Group)-[c:CAN]->(r)
@@ -139,6 +145,42 @@ WITH g, count(o) AS other_admins
 WHERE other_admins = 0
 RETURN g.name AS group_name
 """,
+    "memberships": """
+MATCH (p:Person {email: $email})-[:MEMBER_OF]->(g:Group)
+RETURN DISTINCT g.name AS group_name
+""",
+    "leavers": """
+MATCH (p:Person {status: 'left'})
+RETURN p.email AS email, p.name AS name, p.team AS team
+""",
+    "no_admin_groups": """
+MATCH (g:Group)
+OPTIONAL MATCH (a:Person {status: 'active'})-[:MEMBER_OF {role: 'admin'}]->(g)
+WITH g, count(a) AS admins
+WHERE admins = 0
+RETURN g.name AS group_name
+""",
+    "unowned": """
+MATCH (o:Person)-[:OWNS]->(r:Resource)
+WHERE o.status <> 'active'
+RETURN r.id AS resource, r.title AS title
+""",
+    "no_editor": """
+MATCH (r:Resource)
+OPTIONAL MATCH (m:Person {status: 'active'})-[:MEMBER_OF]->(:Group)-[:CHILD_OF*0..6]->(:Group)-[e:CAN]->(r)
+WHERE e.access IN ['edit', 'admin']
+WITH r, count(m) AS via_groups
+OPTIONAL MATCH (d:Person {status: 'active'})-[f:CAN]->(r)
+WHERE f.access IN ['edit', 'admin']
+WITH r, via_groups, count(d) AS direct
+WHERE via_groups + direct = 0
+RETURN r.id AS resource, r.title AS title
+""",
+    "paid_seats_of": """
+MATCH (p:Person)-[:HAS_ACCOUNT]->(a:Account {paid: true})-[:IN_APP]->(x:App)
+WHERE p.email IN $emails AND p.status = 'active'
+RETURN p.email AS email, x.name AS app, x.price AS monthly_usd
+""",
     "person": """
 MATCH (p:Person {email: $email})
 RETURN p.email AS email, p.name AS name, p.team AS team, p.status AS status
@@ -152,6 +194,20 @@ MATCH (p:Person {email: $email})-[:HAS_ACCOUNT]->(a:Account {admin: true})-[:IN_
 RETURN x.name AS app
 """,
 }
+
+
+def best_chains(rows: list[dict]) -> dict[tuple[str, str], list[str]]:
+    """From the `paths` rows: (resource, via) -> the shortest group chain
+    (ties: the alphabetically first), the same choice as oracle.reach_paths."""
+    best: dict[tuple[str, str], list[str]] = {}
+    for r in rows:
+        key, chain = (r["resource"], r["via"]), list(r["chain"])
+        if key not in best or (len(chain), chain) < (len(best[key]), best[key]):
+            best[key] = chain
+    return best
+
+
+REMOVE = "MATCH (p:Person) WHERE p.email IN $emails SET p.status = 'left'"
 
 
 def params(name: str, email: str | None = None) -> dict:

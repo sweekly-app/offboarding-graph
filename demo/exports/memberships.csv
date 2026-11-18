@@ -75,3 +75,8 @@ dev.ruiz@example.com,finance,admin
 hana.lind@example.com,design,admin
 tia.novak@example.com,ops,admin
 eli.novak@example.com,ops,admin
+tia.novak@example.com,leadership,admin
+tia.novak@example.com,spend-approvers,admin
+tia.novak@example.com,budget-owners,admin
+ben.berg@example.com,budget-owners,member
+dev.ruiz@example.com,budget-owners,member
