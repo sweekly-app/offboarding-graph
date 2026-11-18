@@ -17,6 +17,7 @@ EMPTY = {  # one line instead of silence when a question has no answer
     "orphans": "none: {email} is not the only owner of any resource",
     "sole_admin": "none: every group {email} administers has another active admin",
     "seats": "none: nobody marked as left still holds a paid seat",
+    "single_admins": "none: every resource with an admin has at least two (app admins not counted)",
 }
 
 
@@ -44,6 +45,11 @@ def _parser() -> argparse.ArgumentParser:
     gh.add_argument("--people", type=Path, default=None, help="optional people.csv to copy into the output")
     gh.add_argument("--prices", type=Path, default=None, help="optional prices.csv to copy into the output")
     gh.add_argument("-o", "--out", type=Path, required=True, help="an empty folder for the CSV files")
+    pb = sub.add_parser("import-peribolos", parents=[common],
+                        help="turn a Peribolos config (GitHub access kept as code, e.g. kubernetes/org) into the CSV files")
+    pb.add_argument("source", type=Path, help="the org's folder (org.yaml plus */teams.yaml) or one YAML file")
+    pb.add_argument("--org", default=None, help="the organisation, when the file holds several (orgs: form)")
+    pb.add_argument("-o", "--out", type=Path, required=True, help="an empty folder for the CSV files")
     l = sub.add_parser("load", parents=[common],
                        help="load a folder of exports into the store (prices from prices.csv there, else the demo prices)")
     l.add_argument("folder", type=Path)
@@ -54,6 +60,8 @@ def _parser() -> argparse.ArgumentParser:
         p = sub.add_parser(name, parents=[common], help=text)
         p.add_argument("email")
     sub.add_parser("seats", parents=[common], help="paid seats still held by people marked as left")
+    sub.add_parser("single-admins", parents=[common], help="resources whose admin access rests on one active "
+                   "person, through groups or directly (app admins not counted)")
     wi = sub.add_parser("whatif", parents=[common], help="what breaks if these people are removed: simulated "
                         "in a Relate transaction on a copy of the store, then rolled back")
     wi.add_argument("emails", nargs="+")
@@ -85,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return _run(a, store, as_json)
     except NoSuchPerson as e:
-        print(f"offgraph: no person with email {e.args[0]} in {store}", file=sys.stderr)
+        print(f"offgraph: no person with email or login {e.args[0]} in {store}", file=sys.stderr)
     except ExportError as e:
         lines = str(e).splitlines()
         if len(lines) > MAX_PROBLEMS:
@@ -119,6 +127,10 @@ def _run(a, store: Path, as_json: bool) -> int:
                               {"people.csv": a.people, "prices.csv": a.prices})
         print(json.dumps(counts))
         return 0
+    if a.cmd == "import-peribolos":
+        from . import peribolos
+        print(json.dumps(peribolos.write(peribolos.convert(a.source, a.org), a.out)))
+        return 0
     if a.cmd == "load":
         ex = load_exports(a.folder, read_prices(a.folder, demo.prices()))
         engine.load(store, ex)
@@ -138,6 +150,7 @@ def _run(a, store: Path, as_json: bool) -> int:
         print(f"  resources left with no active owner: {ids(w['unowned'])}")
         print(f"  groups left with no active admin: {', '.join(w['no_admin_groups']) or 'none'}")
         print(f"  resources nobody active can edit any more: {ids(w['no_editor'])}")
+        print(f"  resources left with no admin (app admins not counted): {ids(w['no_admin'])}")
         print(f"  paid seats to remove: {len(w['seats'])}, {w['seats_usd']:.2f} USD a month")
         for e in w["already_left"]:
             print(f"  {e} is already marked as left, so removing them changes nothing here; "
@@ -215,6 +228,8 @@ def _run(a, store: Path, as_json: bool) -> int:
             print("  ".join(f"{k}={' > '.join(v) if k == 'path' else v}" for k, v in r.items()))
         if not out:
             print(EMPTY[qname].format(email=email))
+        if qname == "single_admins" and out:
+            print(f"{len(out)} resources rest on one admin")
         if qname == "seats":
             total = sum(float(r["monthly_usd"]) for r in out)
             print(f"total: {total:.2f} USD a month")

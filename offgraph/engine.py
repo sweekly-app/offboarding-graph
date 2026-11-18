@@ -85,6 +85,9 @@ def rows(store: Path, name: str, email: str | None = None) -> list[dict]:
     return run(store, graph.query(name, email))
 
 
+BROKEN = ("unowned", "no_admin_groups", "no_editor", "no_admin")  # asked before and after a whatif
+
+
 def whatif(store: Path, emails: list[str]) -> dict:
     """What breaks if these people are removed: their status is set to 'left'
     inside a Relate transaction on a temporary copy of the store, the questions
@@ -103,13 +106,13 @@ def whatif(store: Path, emails: list[str]) -> dict:
         try:
             conn.autocommit = False
             ask = lambda name, p=None: [dict(r) for r in conn.execute(graph.QUESTIONS[name].strip(), p or {})]
-            before = {n: ask(n) for n in ("unowned", "no_admin_groups", "no_editor")}
+            before = {n: ask(n) for n in BROKEN}
             seats = ask("paid_seats_of", {"emails": emails})
             left = [r["email"] for r in conn.execute(
                 "MATCH (p:Person) WHERE p.email IN $emails AND p.status <> 'active' RETURN p.email AS email",
                 {"emails": emails})]
             conn.execute(graph.REMOVE, {"emails": emails})
-            after = {n: ask(n) for n in ("unowned", "no_admin_groups", "no_editor")}
+            after = {n: ask(n) for n in BROKEN}
             conn.rollback()
         finally:
             conn.close()
@@ -121,5 +124,6 @@ def whatif(store: Path, emails: list[str]) -> dict:
             "unowned": new("unowned", "resource"),
             "no_admin_groups": [r["group_name"] for r in new("no_admin_groups", "group_name")],
             "no_editor": new("no_editor", "resource"),
+            "no_admin": new("no_admin", "resource"),
             "seats": sorted(seats, key=lambda r: (r["email"], r["app"])),
             "seats_usd": round(sum(float(r["monthly_usd"]) for r in seats), 2)}

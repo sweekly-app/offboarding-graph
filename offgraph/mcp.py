@@ -1,4 +1,4 @@
-"""`offgraph mcp`: the five answers as tools for an AI assistant, over the Model
+"""`offgraph mcp`: the answers as tools for an AI assistant, over the Model
 Context Protocol (JSON-RPC 2.0, one message per line on stdin/stdout).
 
 Read-only: every tool opens the Relate store read-only, and no tool takes Cypher.
@@ -17,6 +17,9 @@ PROTOCOL = "2025-06-18"
 EMAIL = {"type": "object", "properties": {"email": {"type": "string", "description": "the person's email"}},
          "required": ["email"]}
 NONE = {"type": "object", "properties": {}}
+EMAILS = {"type": "object", "properties": {"emails": {"type": "array", "items": {"type": "string"}, "minItems": 1,
+                                                      "description": "the people to remove"}},
+          "required": ["emails"]}
 TOOLS = [
     ("offboarding_checklist", "The offboarding steps for a person, in a safe order: transfer ownership, "
      "second admins, admin rights, paid seats, direct grants, disable.", EMAIL),
@@ -26,6 +29,11 @@ TOOLS = [
      "(or 'direct').", EMAIL),
     ("sole_admin_groups", "Groups this person administers where no other active admin remains.", EMAIL),
     ("leaver_seats", "Paid seats still held by people marked as left, with the monthly cost.", NONE),
+    ("single_admin_resources", "Resources whose admin access rests on one active person, through groups "
+     "or directly (app admins not counted): who cannot leave without a handover.", NONE),
+    ("what_if_removed", "What breaks if these people are removed: resources left with no active owner, "
+     "groups with no active admin, resources nobody can edit, resources with no admin left, seats freed. Simulated in a Relate "
+     "transaction on a copy of the store, then rolled back.", EMAILS),
 ]
 
 
@@ -34,6 +42,14 @@ def _answer(store: Path, tool: str, args: dict):
     if tool == "leaver_seats":
         rows = engine.rows(store, "seats")
         return {"seats": rows, "total_monthly_usd": round(sum(float(r["monthly_usd"]) for r in rows), 2)}
+    if tool == "single_admin_resources":
+        return {"resources": engine.rows(store, "single_admins")}
+    if tool == "what_if_removed":
+        emails = args.get("emails")
+        if not isinstance(emails, list) or not emails or not all(isinstance(e, str) and e.strip() for e in emails):
+            raise ValueError("what_if_removed needs emails: a list of one or more emails")
+        found = [_person(store, e) for e in emails]
+        return {"emails": found, **engine.whatif(store, found)}
     if not str(args.get("email") or "").strip():
         raise ValueError(f"{tool} needs an email argument")
     email = _person(store, str(args["email"]))
@@ -75,7 +91,7 @@ def handle(store: Path, msg: dict) -> dict | None:
         try:
             data = _answer(store, name, params.get("arguments") or {})
         except NoSuchPerson as e:
-            return ok({"content": [{"type": "text", "text": f"no person with email {e.args[0]} in the store"}],
+            return ok({"content": [{"type": "text", "text": f"no person with email or login {e.args[0]} in the store"}],
                        "isError": True})
         except Exception as e:  # engine and file errors go back to the assistant as a tool error
             return ok({"content": [{"type": "text", "text": f"{type(e).__name__}: {e}"}], "isError": True})

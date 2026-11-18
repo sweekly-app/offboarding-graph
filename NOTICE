@@ -13,6 +13,9 @@ Runtime dependency
   BSD-3-Clause, Zlib, BSL-1.0, Unlicense, CC0-1.0, Unicode-3.0
   (licence scan run 13 Nov 2026; no copyleft licence found).
 
+Optional dependency (only for `offgraph import-peribolos`)
+- PyYAML, MIT License.
+
 Tests and packaging (not needed to run the tool)
 - pytest, MIT License.
 - setuptools, MIT License.
@@ -21,7 +24,11 @@ Demo video (demo/offboarding-graph-demo.mp4) was made with
 - Playwright (Apache License 2.0) driving Chromium (BSD-style licences), and ffmpeg
   (LGPL/GPL), used as tools only; none of their code is in this repository.
 - Narration: AI-generated voice (ElevenLabs text-to-speech, stock voice).
-- No third-party music, images, logos or datasets.
+- No third-party music, images or logos. One scene shows offgraph's own output on
+  kubernetes/org (Apache License 2.0): a count line and two rows naming a bot account.
 
 Demo data (demo/exports, demo/offboarding.rl) is invented: every person, email address,
 tool name ("Docs", "Chat", "Tracker", "Wiki", "CodeHost") and price is made up.
+
+The README's Kubernetes run reads kubernetes/org (Apache License 2.0) from a clone the
+reader makes; no file or data from it is in this repository.

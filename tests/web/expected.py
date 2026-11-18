@@ -23,5 +23,6 @@ for p in people:
               "checklist": _checklist(store, e),
               "whatif": {"already_left": w["already_left"], "unowned": [r["resource"] for r in w["unowned"]],
                          "no_admin_groups": w["no_admin_groups"], "no_editor": [r["resource"] for r in w["no_editor"]],
+                         "no_admin": [r["resource"] for r in w["no_admin"]],
                          "seats_usd": w["seats_usd"]}}
 json.dump(out, sys.stdout, indent=1)

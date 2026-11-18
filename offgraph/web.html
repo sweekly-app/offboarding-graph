@@ -72,6 +72,11 @@ ol li{margin:3px 0}
 <p class="mut" style="margin-top:32px">Offboarding Graph by Sweekly Apps (MIT). Relate is loaded from the npm package @relate/relate-wasm __RELATE__ through the jsDelivr CDN; the data is embedded in this file. Not affiliated with or endorsed by Neo4j; Neo4j and Relate are trademarks of Neo4j, Inc. This page sets no cookies and runs no tracking; your browser loads the Relate library from the jsDelivr CDN and the page from GitHub Pages.</p>
 </main>
 <script type="application/json" id="data">__DATA__</script>
+<script>  // if the Relate library cannot be fetched, the module below never runs: say so instead of "Loading"
+setTimeout(() => { if (!window.offgraph) { const s = document.getElementById("status");
+  s.textContent = "Relate has not loaded after 20 seconds. This page fetches it from the jsDelivr CDN (cdn.jsdelivr.net), which may be blocked on this network; the command line in the repository gives the same answers.";
+  s.className = "err"; } }, 20000);
+</script>
 <script type="module">
 import init, { RelateDb } from "@relate/relate-wasm";  // pinned with integrity hashes in the import map above
 
@@ -127,7 +132,7 @@ function checklist(email) {  // the same order as the CLI's checklist
 }
 
 function whatif(emails) {  // remove them in this page's graph, ask again, then rebuild it
-  const names = ["unowned", "no_admin_groups", "no_editor"];
+  const names = ["unowned", "no_admin_groups", "no_editor", "no_admin"];
   const before = Object.fromEntries(names.map((n) => [n, ask(n)]));
   const seats = run(D.questions.paid_seats_of, { emails });
   const already = run("MATCH (p:Person) WHERE p.email IN $emails AND p.status <> 'active' RETURN p.email AS email", { emails }).map((r) => r.email).sort();
@@ -137,7 +142,7 @@ function whatif(emails) {  // remove them in this page's graph, ask again, then 
   const fresh = (n, k) => { const old = new Set(before[n].map((r) => r[k])); return after[n].filter((r) => !old.has(r[k])).sort(byStr(k)); };
   return { removed: emails, already_left: already, unowned: fresh("unowned", "resource"),
            no_admin_groups: fresh("no_admin_groups", "group_name").map((r) => r.group_name),
-           no_editor: fresh("no_editor", "resource"), seats, seats_usd: Math.round(seats.reduce((s, r) => s + Number(r.monthly_usd), 0) * 100) / 100 };
+           no_editor: fresh("no_editor", "resource"), no_admin: fresh("no_admin", "resource"), seats, seats_usd: Math.round(seats.reduce((s, r) => s + Number(r.monthly_usd), 0) * 100) / 100 };
 }
 
 const table = (head, rows) => rows.length
@@ -248,8 +253,9 @@ function showPerson(email) {
     <li>resources left with no active owner: ${ids(W.unowned)}</li>
     <li>groups left with no active admin: ${W.no_admin_groups.map(esc).join(", ") || "none"}</li>
     <li>resources nobody active can edit any more: ${ids(W.no_editor)}</li>
+    <li>resources left with no admin (app admins not counted): ${ids(W.no_admin)}</li>
     <li>paid seats to remove: ${W.seats.length}, ${fix2(W.seats_usd)} USD a month</li></ul>`}
-   ${cypher("unowned", "no_admin_groups", "no_editor")}</div>
+   ${cypher("unowned", "no_admin_groups", "no_editor", "no_admin")}</div>
   <div class="card"><b>Checklist, in a safe order</b><ol>${checklist(email).map((s) => `<li>${esc(s)}</li>`).join("")}</ol></div>`;
 }
 

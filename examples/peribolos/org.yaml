@@ -1,0 +1,19 @@
+# A made-up organisation in Peribolos' format (the layout of kubernetes/org's config/ORG/).
+admins:
+- org-owner
+- release-bot
+members:
+- ana-sample
+- ben-sample
+- cara-sample
+- dev-sample
+- eli-sample
+- publish-bot
+teams:
+  docs-admins:
+    description: Admin access to the docs site
+    maintainers:
+    - ana-sample
+    privacy: closed
+    repos:
+      docs-site: admin

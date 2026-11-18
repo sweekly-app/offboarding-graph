@@ -1,0 +1,42 @@
+teams:
+  platform:
+    description: Everyone in the platform group
+    maintainers:
+    - ben-sample
+    members:
+    - cara-sample
+    privacy: closed
+    repos:
+      api: write
+      deploy-scripts: read
+    teams:
+      platform-leads:
+        description: Leads, nested under platform
+        members:
+        - dev-sample
+        privacy: closed
+        repos:
+          api: admin
+      platform-oncall:
+        description: On call
+        members:
+        - eli-sample
+        - cara-sample
+        privacy: closed
+        repos:
+          deploy-scripts: triage
+  publishing:
+    description: The publishing bot pushes to mirrors
+    members:
+    - publish-bot
+    privacy: closed
+    repos:
+      mirror: admin
+  release:
+    description: Release managers
+    maintainers:
+    - org-owner
+    privacy: closed
+    repos:
+      api: admin
+      release-tools: admin

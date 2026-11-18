@@ -177,8 +177,9 @@ def check(ex: Exports) -> None:
     unknown("accounts.csv: email not in people.csv", (a["email"] for a in ex.accounts if a["email"] not in people))
     unknown("accounts.csv: app with no price (add it to prices.csv: app,monthly_usd)",
             (a["app"] for a in ex.accounts if a["app"] not in ex.prices))
-    unknown("resources.csv: owner not in people.csv (add them, with status left if they are gone)",
-            (r["owner"] for r in ex.resources if r["owner"] not in people))
+    unknown("resources.csv: owner not in people.csv (add them, with status left if they are gone; "
+            "leave it empty if nobody owns it)",
+            (r["owner"] for r in ex.resources if r["owner"] and r["owner"] not in people))
     unknown("grants.csv: resource not in resources.csv", (g["resource"] for g in ex.grants if g["resource"] not in resources))
     unknown("grants.csv: group not in groups.csv",
             (g["grantee"] for g in ex.grants if g["grantee_type"] == "group" and g["grantee"] not in groups))

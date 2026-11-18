@@ -11,7 +11,8 @@ license = "MIT"
 dependencies = ["relate-db==1.0.1"]
 
 [project.optional-dependencies]
-test = ["pytest>=7"]
+test = ["pytest>=7", "PyYAML>=6"]
+peribolos = ["PyYAML>=6"]
 
 [project.scripts]
 offgraph = "offgraph.cli:main"

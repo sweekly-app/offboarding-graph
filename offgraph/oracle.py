@@ -138,6 +138,31 @@ def sole_admin(ex: Exports, email: str) -> set[str]:
     return out
 
 
+def _resource_admins(ex: Exports) -> dict[str, set[str]]:
+    """resource -> the active people with admin access to it, through any chain of groups or
+    directly, not counting the admins of its app (who administer everything)."""
+    app_admins = {(a["email"], a["app"]) for a in ex.accounts if a["admin"] == "yes"}
+    app_of = {r["resource"]: r["app"] for r in ex.resources}
+    admins: dict[str, set[str]] = {r: set() for r in app_of}
+    for p in ex.people:
+        if p["status"] != "active":
+            continue
+        for r, a, _v in reach(ex, p["email"]):
+            if a == "admin" and r in admins and (p["email"], app_of[r]) not in app_admins:
+                admins[r].add(p["email"])
+    return admins
+
+
+def single_admins(ex: Exports) -> dict[str, str]:
+    """resource -> its one admin (see _resource_admins)."""
+    return {r: next(iter(s)) for r, s in _resource_admins(ex).items() if len(s) == 1}
+
+
+def no_admin(ex: Exports) -> list[str]:
+    """Resources with no admin at all (see _resource_admins)."""
+    return sorted(r for r, s in _resource_admins(ex).items() if not s)
+
+
 def app_admin(ex: Exports, email: str) -> set[str]:
     return {a["app"] for a in ex.accounts if a["email"] == email and a["admin"] == "yes"}
 
@@ -198,7 +223,7 @@ def whatif(ex: Exports, emails: list[str]) -> dict:
         unowned = {r["resource"] for r in e.resources if r["owner"] not in active}
         editable = {r for p in active for r, a, _v in reach(e, p) if a in ("edit", "admin")}
         no_editor = {r["resource"] for r in e.resources} - editable
-        return unowned, no_admin_groups(e), no_editor
+        return unowned, no_admin_groups(e), no_editor, set(no_admin(e))
     after_ex = replace(ex, people=[{**p, "status": "left"} if p["email"] in emails else p for p in ex.people])
     b, a = broken(ex), broken(after_ex)
     active_before = {p["email"] for p in ex.people if p["status"] == "active"}
@@ -206,5 +231,5 @@ def whatif(ex: Exports, emails: list[str]) -> dict:
                         if acc["email"] in emails and acc["email"] in active_before and acc["paid"] == "yes")
     return {"already_left": sorted(e for e in emails if e not in active_before),
             "unowned": sorted(a[0] - b[0]), "no_admin_groups": sorted(a[1] - b[1]),
-            "no_editor": sorted(a[2] - b[2]), "seats": seats_rows,
+            "no_editor": sorted(a[2] - b[2]), "no_admin": sorted(a[3] - b[3]), "seats": seats_rows,
             "seats_usd": round(sum(x for _e, _a, x in seats_rows), 2)}

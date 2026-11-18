@@ -29,7 +29,7 @@ const fs = require('fs'), path = require('path'), http = require('http');
         o[email] = { svg_text: tx, reach: window.offgraph.reach(email).map((r) => [r.resource, r.access, r.via, r.path]),
           checklist: window.offgraph.checklist(email),
           whatif: { already_left: w.already_left, unowned: w.unowned.map((r) => r.resource), no_admin_groups: w.no_admin_groups,
-                    no_editor: w.no_editor.map((r) => r.resource), seats_usd: w.seats_usd } }; }
+                    no_editor: w.no_editor.map((r) => r.resource), no_admin: w.no_admin.map((r) => r.resource), seats_usd: w.seats_usd } }; }
       return o; });
     for (const e of Object.keys(want)) for (const k of Object.keys(want[e]))
       if (JSON.stringify(got[e]?.[k]) !== JSON.stringify(want[e][k])) { bad++; if (bad < 6) console.log('DIFF', e, k, JSON.stringify(got[e]?.[k]).slice(0, 200), '!=', JSON.stringify(want[e][k]).slice(0, 200)); }

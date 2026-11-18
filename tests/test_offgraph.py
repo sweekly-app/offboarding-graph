@@ -95,7 +95,7 @@ def test_load_statements_cover_every_row(ex):
     n = sum(len(params["rows"]) for _c, params in stmts)
     expected = (len(ex.people) + len(ex.groups) + sum(1 for g in ex.groups if g["parent"])
                 + len(ex.prices) + len(ex.memberships) + len(ex.accounts)
-                + len(ex.resources) + len(ex.grants))
+                + len(ex.resources) + sum(1 for r in ex.resources if r["owner"]) + len(ex.grants))
     assert n == expected
     for cypher, params in stmts:
         assert cypher.startswith("UNWIND $rows AS r ") and set(params) == {"rows"}
@@ -419,7 +419,7 @@ def test_cli_person_checks_and_json_after_subcommand(tmp_path, capsys):
     assert main(["--store", store, "load", str(write_exports(tmp_path / "x", **BASE))]) == 0
     capsys.readouterr()
     assert main(["--store", store, "checklist", "nobody@example.com"]) == 2
-    assert "no person with email nobody@example.com" in capsys.readouterr().err
+    assert "no person with email or login nobody@example.com" in capsys.readouterr().err
     assert main(["checklist", "LEA@example.com", "--store", store, "--json"]) == 0
     steps = json.loads(capsys.readouterr().out)
     assert steps[-1] == "Disable the account everywhere" and any("Chat seat" in s for s in steps)
@@ -599,7 +599,8 @@ def test_mcp_tools_answer_like_the_cli(ex, tmp_path):
     assert [r["id"] for r in replies] == [1, 2, 3, 4, 5, 6, 7, None]  # no reply to the notification
     assert replies[0]["result"]["capabilities"] == {"tools": {}}
     names = {t["name"] for t in replies[1]["result"]["tools"]}
-    assert names == {"offboarding_checklist", "who_takes_over", "access_paths", "sole_admin_groups", "leaver_seats"}
+    assert names == {"offboarding_checklist", "who_takes_over", "access_paths", "sole_admin_groups", "leaver_seats",
+                     "single_admin_resources", "what_if_removed"}
     assert replies[2]["result"]["structuredContent"]["steps"] == _checklist(store, fin)
     assert replies[3]["result"]["structuredContent"]["resources"] == _reach(store, fin)
     assert replies[4]["result"]["isError"] is True
@@ -612,6 +613,19 @@ def test_mcp_tools_answer_like_the_cli(ex, tmp_path):
     r = mcp.handle(store, {"jsonrpc": "2.0", "id": 10, "method": "tools/call",
                            "params": {"name": "who_takes_over", "arguments": {}}})
     assert r["result"]["isError"] and "needs an email" in r["result"]["content"][0]["text"]
+    r = mcp.handle(store, {"jsonrpc": "2.0", "id": 11, "method": "tools/call",
+                           "params": {"name": "single_admin_resources", "arguments": {}}})
+    assert {x["resource"]: x["admin"] for x in r["result"]["structuredContent"]["resources"]} == oracle.single_admins(ex)
+    tia = next(p["email"] for p in ex.people if p["status"] == "active")
+    r = mcp.handle(store, {"jsonrpc": "2.0", "id": 12, "method": "tools/call",
+                           "params": {"name": "what_if_removed", "arguments": {"emails": [tia.upper()]}}})
+    got, want = r["result"]["structuredContent"], oracle.whatif(ex, [tia])
+    assert got["emails"] == [tia] and [x["resource"] for x in got["no_editor"]] == want["no_editor"]
+    assert got["no_admin_groups"] == want["no_admin_groups"]
+    for bad in ({}, {"emails": []}, {"emails": "a@example.com"}, {"emails": [""]}):
+        r = mcp.handle(store, {"jsonrpc": "2.0", "id": 13, "method": "tools/call",
+                               "params": {"name": "what_if_removed", "arguments": bad}})
+        assert r["result"]["isError"] and "needs emails" in r["result"]["content"][0]["text"]
 
 
 @pytest.mark.engine
@@ -759,6 +773,7 @@ def test_whatif_matches_oracle_and_leaves_the_store_untouched(ex, tmp_path, caps
         assert [r["resource"] for r in got["unowned"]] == want["unowned"], emails
         assert got["no_admin_groups"] == want["no_admin_groups"], emails
         assert [r["resource"] for r in got["no_editor"]] == want["no_editor"], emails
+        assert [r["resource"] for r in got["no_admin"]] == want["no_admin"], emails
         assert sorted((r["email"], r["app"], float(r["monthly_usd"])) for r in got["seats"]) == want["seats"]
         assert got["seats_usd"] == want["seats_usd"]
     assert store.read_bytes() == before
@@ -783,7 +798,7 @@ def test_example_mcp_client_talks_to_the_server():
                           sys.executable, "-m", "offgraph.cli", "--store", "demo/offboarding.rl", "mcp"],
                          cwd=root, capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert res.returncode == 0, res.stderr
-    assert "tools/list: 5 tools" in res.stdout and "1. Transfer ownership of R001" in res.stdout
+    assert "tools/list: 7 tools" in res.stdout and "1. Transfer ownership of R001" in res.stdout
     bare = subprocess.run([sys.executable, "examples/mcp_client.py"], cwd=root, capture_output=True, text=True, timeout=60)
     assert bare.returncode == 1 and bare.stderr.startswith("usage:") and "Traceback" not in bare.stderr
 
@@ -883,8 +898,114 @@ def test_web_command_and_escaping(tmp_path, capsys):
     out = tmp_path / "p.html"
     assert main(["web", str(folder), "-o", str(out), "--title", "<Acme>", "--start", "LEA@example.com"]) == 0
     page = out.read_text(encoding="utf-8")
-    assert "&lt;Acme&gt;" in page and page.count("</script>") == 3  # import map, data, module: the data cannot close its own tag
+    assert "&lt;Acme&gt;" in page and page.count("</script>") == 4  # import map, CDN timer, data, module: the data cannot close its own tag
     blob = page.split('id="data">', 1)[1].split("</script>", 1)[0]
     assert "<" not in blob and ">" not in blob and "&" not in blob
     assert any("<!--<script>" in r[0]["title"] for r in [json.loads(blob)["load"][6][1]["rows"]])
     assert main(["web", str(folder), "-o", str(out), "--start", "nobody@example.com"]) == 2
+
+
+# --- Peribolos import (GitHub access kept as code; examples/peribolos is made up in that format) ---
+
+PB = Path(__file__).parent.parent / "examples" / "peribolos"
+
+
+def _pb_exports(tmp_path):
+    from offgraph import peribolos
+    from offgraph.data import read_prices
+    out = tmp_path / "pb"
+    peribolos.write(peribolos.convert(PB), out)
+    return out, load(out, read_prices(out, {}))
+
+
+def test_import_peribolos_maps_teams_nesting_and_permissions(tmp_path):
+    _out, ex = _pb_exports(tmp_path)
+    assert {(g["group"], g["parent"]) for g in ex.groups} == {
+        ("docs-admins", ""), ("platform", ""), ("platform-leads", "platform"), ("platform-oncall", "platform"),
+        ("publishing", ""), ("release", "")}
+    roles = {(m["email"], m["group"]): m["role"] for m in ex.memberships}
+    assert roles[("ben-sample", "platform")] == "admin" and roles[("cara-sample", "platform")] == "member"
+    assert {a["email"] for a in ex.accounts if a["admin"] == "yes"} == {"org-owner", "release-bot"}
+    assert all(p["status"] == "active" for p in ex.people) and len(ex.people) == 8
+    acc = {(g["resource"], g["grantee"]): g["access"] for g in ex.grants}
+    assert acc[("GitHub:peribolos/api", "platform")] == "edit"            # write
+    assert acc[("GitHub:peribolos/deploy-scripts", "platform")] == "view"  # read
+    assert acc[("GitHub:peribolos/deploy-scripts", "platform-oncall")] == "comment"  # triage
+    assert all(r["owner"] == "" for r in ex.resources) and ex.prices == {"GitHub": 0.0}
+    # a child team reaches its parent's repositories
+    assert oracle.reach_paths(ex, "dev-sample")[("GitHub:peribolos/deploy-scripts", "platform")] == [
+        "platform-leads", "platform"]
+    # org admins are not counted; release-tools has no other admin, so it is not listed
+    assert oracle.single_admins(ex) == {"GitHub:peribolos/docs-site": "ana-sample",
+                                        "GitHub:peribolos/api": "dev-sample",
+                                        "GitHub:peribolos/mirror": "publish-bot"}
+
+
+def test_import_peribolos_single_file_forms_and_refusals(tmp_path):
+    from offgraph import peribolos
+    from offgraph.data import ExportError
+    one = tmp_path / "config.yaml"
+    one.write_text("orgs:\n  acme:\n    admins: [boss]\n    teams:\n      t:\n        members: [x]\n"
+                   "        repos: {app: maintain}\n  other:\n    admins: [y]\n", encoding="utf-8")
+    with pytest.raises(ExportError, match="holds 2 organisations"):
+        peribolos.convert(one)
+    t = peribolos.convert(one, "acme")
+    assert t["grants.csv"] == [{"resource": "GitHub:acme/app", "grantee": "t", "grantee_type": "group",
+                                "access": "edit"}]
+    with pytest.raises(ExportError, match="no organisation 'nope'"):
+        peribolos.convert(one, "nope")
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("admins: [a]\nteams:\n  t:\n    repos: {app: owner}\n  u: just-text\n", encoding="utf-8")
+    with pytest.raises(ExportError) as e:
+        peribolos.convert(bad)
+    assert "unknown permission 'owner'" in str(e.value) and "team 'u' is not a mapping" in str(e.value)
+    dup = tmp_path / "dup"
+    (dup / "a").mkdir(parents=True)
+    (dup / "org.yaml").write_text("admins: [a]\nteams:\n  t: {members: [b]}\n", encoding="utf-8")
+    (dup / "a" / "teams.yaml").write_text("teams:\n  t: {members: [c]}\n", encoding="utf-8")
+    with pytest.raises(ExportError, match="also defined in org.yaml"):
+        peribolos.convert(dup)
+    with pytest.raises(ExportError, match="has no org.yaml"):
+        peribolos.convert(dup / "a")
+    (tmp_path / "broken.yaml").write_text("teams: [unclosed\n", encoding="utf-8")
+    with pytest.raises(ExportError, match="not YAML"):
+        peribolos.convert(tmp_path / "broken.yaml")
+    out = tmp_path / "out"
+    peribolos.write(t, out)
+    with pytest.raises(ExportError, match="already has people.csv"):
+        peribolos.write(t, out)
+
+
+@pytest.mark.engine
+@pytest.mark.skipif(not engine.available(), reason="Relate not installed")
+def test_import_peribolos_end_to_end_matches_oracle(tmp_path, capsys):
+    from offgraph.cli import main
+    out = tmp_path / "pb"
+    assert main(["import-peribolos", str(PB), "--org", "acme", "-o", str(out)]) == 0
+    store = tmp_path / "pb.rl"
+    assert main(["--store", str(store), "load", str(out)]) == 0
+    from offgraph.data import read_prices
+    ex = load(out, read_prices(out, {}))
+    for p in ex.people:   # resources without an owner load, and reach still matches
+        e = p["email"]
+        assert {(r["resource"], r["access"], r["via"]) for r in engine.rows(store, "reach", e)} == oracle.reach(ex, e)
+    got = {r["resource"]: r["admin"] for r in engine.rows(store, "single_admins")}
+    assert got == oracle.single_admins(ex) and "GitHub:acme/api" in got
+    capsys.readouterr()
+    assert main(["--store", str(store), "single-admins"]) == 0
+    text = capsys.readouterr().out
+    assert "resource=GitHub:acme/api  title=api  admin=dev-sample" in text and "3 resources rest on one admin" in text
+    w = engine.whatif(store, ["dev-sample"])
+    assert [r["resource"] for r in w["no_admin"]] == ["GitHub:acme/api"] == oracle.whatif(ex, ["dev-sample"])["no_admin"]
+    assert w["unowned"] == [] and w["seats_usd"] == 0.0
+    capsys.readouterr()
+    assert main(["--store", str(store), "whatif", "ana-sample"]) == 0
+    assert "resources left with no admin (app admins not counted): GitHub:acme/docs-site (docs-site)" in capsys.readouterr().out
+
+
+@pytest.mark.engine
+@pytest.mark.skipif(not engine.available(), reason="Relate not installed")
+def test_single_admins_matches_oracle_on_the_demo(ex, tmp_path):
+    store = tmp_path / "s.rl"
+    engine.load(store, ex)
+    assert {r["resource"]: r["admin"] for r in engine.rows(store, "single_admins")} == oracle.single_admins(ex)

@@ -8,7 +8,7 @@ Model
   (:Resource {id, app, kind, title})
   (:Person)-[:MEMBER_OF {role}]->(:Group)
   (:Person)-[:HAS_ACCOUNT]->(:Account)-[:IN_APP]->(:App)
-  (:Person)-[:OWNS]->(:Resource)
+  (:Person)-[:OWNS]->(:Resource)      (an owner is optional)
   (:Group|Person)-[:CAN {access}]->(:Resource)
 A member of a group also reaches everything granted to its parent groups.
 """
@@ -51,9 +51,12 @@ def load_script(ex: Exports) -> str:
             f"CREATE (p)-[:HAS_ACCOUNT]->(:Account {{key: {lit(key)}, paid: {lit(a['paid'] == 'yes')}, "
             f"admin: {lit(a['admin'] == 'yes')}, last_active: {lit(a['last_active'])}}})-[:IN_APP]->(x);")
     for r in ex.resources:
-        add(f"MATCH (o:Person {{email: {lit(r['owner'])}}}) "
-            f"CREATE (o)-[:OWNS]->(:Resource {{id: {lit(r['resource'])}, app: {lit(r['app'])}, "
-            f"kind: {lit(r['kind'])}, title: {lit(r['title'])}}});")
+        node = (f"(:Resource {{id: {lit(r['resource'])}, app: {lit(r['app'])}, "
+                f"kind: {lit(r['kind'])}, title: {lit(r['title'])}}})")
+        if r["owner"]:
+            add(f"MATCH (o:Person {{email: {lit(r['owner'])}}}) CREATE (o)-[:OWNS]->{node};")
+        else:
+            add(f"CREATE {node};")
     for g in ex.grants:
         label, key = ("Group", "name") if g["grantee_type"] == "group" else ("Person", "email")
         add(f"MATCH (s:{label} {{{key}: {lit(g['grantee'])}}}), (r:Resource {{id: {lit(g['resource'])}}}) "
@@ -84,9 +87,10 @@ def load_statements(ex: Exports) -> list[tuple[str, dict]]:
         ("UNWIND $rows AS r MATCH (p:Person {email: r.email}), (x:App {name: r.app}) "
          "CREATE (p)-[:HAS_ACCOUNT]->(:Account {key: r.key, paid: r.paid, admin: r.admin, "
          "last_active: r.last_active})-[:IN_APP]->(x)", {"rows": acc}),
-        ("UNWIND $rows AS r MATCH (o:Person {email: r.owner}) "
-         "CREATE (o)-[:OWNS]->(:Resource {id: r.resource, app: r.app, kind: r.kind, title: r.title})",
+        ("UNWIND $rows AS r CREATE (:Resource {id: r.resource, app: r.app, kind: r.kind, title: r.title})",
          {"rows": ex.resources}),
+        ("UNWIND $rows AS r MATCH (o:Person {email: r.owner}), (x:Resource {id: r.resource}) "
+         "CREATE (o)-[:OWNS]->(x)", {"rows": [r for r in ex.resources if r["owner"]]}),
         ("UNWIND $rows AS r MATCH (s:Group {name: r.grantee}), (x:Resource {id: r.resource}) "
          "CREATE (s)-[:CAN {access: r.access}]->(x)", {"rows": by_type["group"]}),
         ("UNWIND $rows AS r MATCH (s:Person {email: r.grantee}), (x:Resource {id: r.resource}) "
@@ -172,6 +176,37 @@ WHERE e.access IN ['edit', 'admin']
 WITH r, count(m) AS via_groups
 OPTIONAL MATCH (d:Person {status: 'active'})-[f:CAN]->(r)
 WHERE f.access IN ['edit', 'admin']
+WITH r, via_groups, count(d) AS direct
+WHERE via_groups + direct = 0
+RETURN r.id AS resource, r.title AS title
+""",
+    "single_admins": """
+MATCH (r:Resource)
+OPTIONAL MATCH (o:Person)-[:HAS_ACCOUNT]->(:Account {admin: true})-[:IN_APP]->(x:App)
+WHERE x.name = r.app
+WITH r, collect(DISTINCT o.email) AS app_admins
+OPTIONAL MATCH (m:Person {status: 'active'})-[:MEMBER_OF]->(:Group)-[:CHILD_OF*0..6]->(:Group)-[e:CAN]->(r)
+WHERE e.access = 'admin' AND NOT m.email IN app_admins
+WITH r, app_admins, collect(DISTINCT m.email) AS via_groups
+OPTIONAL MATCH (d:Person {status: 'active'})-[f:CAN]->(r)
+WHERE f.access = 'admin' AND NOT d.email IN app_admins
+WITH r, via_groups, collect(DISTINCT d.email) AS direct
+WITH r, via_groups + direct AS admins
+UNWIND admins AS a
+WITH r, collect(DISTINCT a) AS people
+WHERE size(people) = 1
+RETURN r.id AS resource, r.title AS title, people[0] AS admin
+""",
+    "no_admin": """
+MATCH (r:Resource)
+OPTIONAL MATCH (o:Person)-[:HAS_ACCOUNT]->(:Account {admin: true})-[:IN_APP]->(x:App)
+WHERE x.name = r.app
+WITH r, collect(DISTINCT o.email) AS app_admins
+OPTIONAL MATCH (m:Person {status: 'active'})-[:MEMBER_OF]->(:Group)-[:CHILD_OF*0..6]->(:Group)-[e:CAN]->(r)
+WHERE e.access = 'admin' AND NOT m.email IN app_admins
+WITH r, app_admins, count(m) AS via_groups
+OPTIONAL MATCH (d:Person {status: 'active'})-[f:CAN]->(r)
+WHERE f.access = 'admin' AND NOT d.email IN app_admins
 WITH r, via_groups, count(d) AS direct
 WHERE via_groups + direct = 0
 RETURN r.id AS resource, r.title AS title
