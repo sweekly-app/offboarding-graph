@@ -4,7 +4,7 @@
 
 **On real data:** Kubernetes publishes its GitHub access as code (kubernetes/org). Loaded into Relate in under a second, 28 of the 80 repositories its teams administer have exactly one admin apart from the 10 organisation owners; 26 of them hang on a single bot account, so `whatif` on that account shows 26 repositories left with no admin but the owners. [The run, step by step](#real-data-kubernetes-own-access-config).
 
-**Try it in your browser, nothing to install:** [sweekly-app.github.io/offboarding-graph](https://sweekly-app.github.io/offboarding-graph/) (Relate's WebAssembly build runs the same Cypher in the page, on an invented demo company) · **Demo video (1:59):** [demo/offboarding-graph-demo.mp4](demo/offboarding-graph-demo.mp4) · **On your machine in a minute:** [Setup and run](#setup-and-run)
+**Try it in your browser, nothing to install:** [sweekly-app.github.io/offboarding-graph](https://sweekly-app.github.io/offboarding-graph/) (Relate's WebAssembly build runs the same Cypher in the page, on an invented demo company) · **Demo video (1:57):** [demo/offboarding-graph-demo.mp4](demo/offboarding-graph-demo.mp4) · **On your machine in a minute:** [Setup and run](#setup-and-run)
 
 ![The report for one leaver: the person on the left, the groups they are a member of, the groups those nest under, and the resources each grant opens; the drive only they own and the group where they are the only admin are outlined in red](demo/report.png)
 
@@ -133,7 +133,7 @@ Rebuild from scratch: `offgraph demo exports` writes the seeded 60-person compan
 
 ## Where the data lives
 - `demo/offboarding.rl`: the persistent Relate store of the demo company (single file), ready to query; `demo/exports/`: the six CSV files it was built from.
-- `demo/offboarding-graph-demo.mp4`: the 1:59 demo recording with captions. Narration: AI-generated voice (ElevenLabs).
+- `demo/offboarding-graph-demo.mp4`: the 1:57 demo recording with captions. Narration: AI-generated voice (ElevenLabs).
 - `docs/index.html`: the browser page for the demo company; `docs/reference.md`: commands, CSV columns, importers.
 - `examples/peribolos/` and `examples/github/`: made-up organisations in Peribolos' format and in the shape of GitHub's REST API responses; any match with a real account is coincidental. `examples/mcp_client.py`: a minimal MCP client.
 - The demo data is invented: every name starts with "[Sample]" and every address ends in `example.com`. The Kubernetes run reads a clone you make; none of its data is in this repository.
